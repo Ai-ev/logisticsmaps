@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LogisticsMaps</title>
+
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0c10;
+      --panel:     #111318;
+      --border:    #1e2230;
+      --accent:    #4af0a0;
+      --accent2:   #4ab4f0;
+      --text:      #e8ecf4;
+      --muted:     #5a6278;
+      --track:     #1e2230;
+      --radius:    10px;
+    }
+
+    html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'DM Mono', monospace; color: var(--text); }
+
+    /* ── MAP ── */
+    #map { position: absolute; inset: 0; }
+
+    /* ── HEADER ── */
+    #header {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px;
+      background: linear-gradient(to bottom, rgba(10,12,16,0.92) 0%, rgba(10,12,16,0) 100%);
+      pointer-events: none;
+    }
+    #header .logo {
+      font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px;
+      letter-spacing: -0.5px; color: var(--text);
+    }
+    #header .logo span { color: var(--accent); }
+    #header .tag {
+      font-size: 10px; letter-spacing: 2px; color: var(--muted);
+      text-transform: uppercase; margin-top: 2px;
+    }
+
+    /* ── CONTROL PANEL ── */
+    #panel {
+      position: absolute; top: 70px; right: 20px; z-index: 10;
+      width: 270px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    .panel-header {
+      padding: 12px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .panel-header span {
+      font-family: 'Syne', sans-serif; font-size: 11px;
+      font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .panel-header .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    .section {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section:last-child { border-bottom: none; }
+
+    .section-label {
+      font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 12px;
+    }
+
+    /* ── LAYER TOGGLE ── */
+    .layer-toggle {
+      display: flex; gap: 6px; margin-bottom: 0;
+    }
+    .layer-btn {
+      flex: 1; padding: 7px 0; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); border-radius: 6px;
+      font-family: 'DM Mono', monospace; font-size: 11px; cursor: pointer;
+      transition: all 0.18s ease; letter-spacing: 0.5px;
+    }
+    .layer-btn:hover { border-color: var(--accent2); color: var(--text); }
+    .layer-btn.active {
+      background: var(--accent2); border-color: var(--accent2);
+      color: #0a0c10; font-weight: 500;
+    }
+
+    /* ── SLIDERS ── */
+    .control-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .control-row:last-child { margin-bottom: 0; }
+    .control-label {
+      font-size: 10px; color: var(--muted); min-width: 64px; letter-spacing: 0.3px;
+    }
+    .control-value {
+      font-size: 10px; color: var(--accent); min-width: 32px; text-align: right;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none; flex: 1; height: 3px;
+      background: var(--track); border-radius: 2px; outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 6px rgba(74,240,160,0.5);
+      transition: transform 0.15s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+    input[type=range].blue::-webkit-slider-thumb {
+      background: var(--accent2); box-shadow: 0 0 6px rgba(74,180,240,0.5);
+    }
+
+    /* ── CAMERA DIAGRAM ── */
+    .cam-visual {
+      position: relative; height: 56px; margin-bottom: 12px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .cam-visual canvas { width: 100%; height: 100%; }
+
+    /* ── COORDS PILL ── */
+    #coords {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 10; background: rgba(10,12,16,0.85);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 5px 14px; font-size: 10px; color: var(--muted);
+      letter-spacing: 0.5px; pointer-events: none;
+      backdrop-filter: blur(6px);
+    }
+
+    /* ── ZOOM DISPLAY ── */
+    #zoom-badge {
+      position: absolute; bottom: 20px; right: 20px; z-index: 10;
+      background: rgba(10,12,16,0.85); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 12px;
+      font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+      color: var(--text); pointer-events: none;
+      backdrop-filter: blur(6px);
+    }
+    #zoom-badge span { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="header">
+  <div>
+    <div class="logo">Logistics<span>Maps</span></div>
+    <div class="tag">Visual Intelligence Platform</div>
+  </div>
+</div>
+
+<div id="panel">
+
+  <div class="panel-header">
+    <span>Map Controls</span>
+    <div class="dot"></div>
+  </div>
+
+  <!-- BASE LAYER -->
+  <div class="section">
+    <div class="section-label">Base Layer</div>
+    <div class="layer-toggle">
+      <button class="layer-btn active" id="btn-vector" onclick="setLayer('vector')">Vector</button>
+      <button class="layer-btn" id="btn-satellite" onclick="setLayer('satellite')">Satellite</button>
+      <button class="layer-btn" id="btn-blend" onclick="setLayer('blend')">Blend</button>
+    </div>
+  </div>
+
+  <!-- MAP APPEARANCE -->
+  <div class="section">
+    <div class="section-label">Appearance</div>
+
+    <div class="control-row">
+      <span class="control-label">Opacity</span>
+      <input type="range" id="sl-opacity" min="0" max="100" value="100"
+             oninput="updateOpacity(this.value)" />
+      <span class="control-value" id="val-opacity">100%</span>
+    </div>
+
+    <div class="control-row">
+      <span class="control-label">Saturation</span>
+      <input type="range" id="sl-sat" min="0" max="100" value="100"
+             oninput="updateSaturation(this.value)" />
+      <span class="control-value" id="val-sat">100%</span>
+    </div>
+  </div>
+
+  <!-- CAMERA -->
+  <div class="section">
+    <div class="section-label">Camera / 3D View</div>
+
+    <canvas id="cam-canvas" class="cam-visual" width="238" height="56"></canvas>
+
+    <div class="control-row">
+      <span class="control-label">Pitch</span>
+      <input type="range" class="blue" id="sl-pitch" min="0" max="85" value="0"
+             oninput="updateCamera()" />
+      <span class="control-value" id="val-pitch">0°</span>
+    </div>
+
+    <div class="control-row">
+      <span class="control-label">Bearing</span>
+      <input type="range" class="blue" id="sl-bearing" min="-180" max="180" value="0"
+             oninput="updateCamera()" />
+      <span class="control-value" id="val-bearing">0°</span>
+    </div>
+
+    <div class="control-row">
+      <span class="control-label">Reset</span>
+      <button onclick="resetCamera()" style="
+        flex:1; padding:6px; background:transparent; border:1px solid var(--border);
+        color:var(--muted); border-radius:6px; font-family:'DM Mono',monospace;
+        font-size:10px; cursor:pointer; letter-spacing:1px; transition:all 0.15s;
+      " onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--text)'"
+         onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+        RESET CAMERA
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<div id="coords">— / —</div>
+<div id="zoom-badge">zoom <span id="zoom-val">3.0</span></div>
+
+<script>
+  mapboxgl.accessToken = 'pk.eyJ1IjoibWF0dGlhc2JtIiwiYSI6ImNtb2NqcTdoYzAxa28ycHBlNDJjMnU5N2kifQ.qkqA4r5gtFbtSX3NlrKkPA';
+
+  const map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: [15, 52],
+    zoom: 3.5,
+    pitch: 0,
+    bearing: 0,
+    projection: 'mercator'
+  });
+
+  // Navigation control (zoom buttons + compass)
+  map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'bottom-left');
+
+  // ── State ──
+  let currentLayer = 'vector';
+  let currentOpacity = 1.0;
+  let currentSaturation = 1.0; // 1 = full color, 0 = greyscale
+
+  const STYLES = {
+    vector:    'mapbox://styles/mapbox/dark-v11',
+    satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+    blend:     'mapbox://styles/mapbox/dark-v11'   // satellite overlay added on top
+  };
+
+  // ── Layer switching ──
+  function setLayer(type) {
+    currentLayer = type;
+    ['vector','satellite','blend'].forEach(t => {
+      document.getElementById('btn-' + t).classList.toggle('active', t === type);
+    });
+
+    const style = STYLES[type] || STYLES.vector;
+    map.setStyle(style);
+
+    map.once('style.load', () => {
+      if (type === 'blend') addSatelliteOverlay();
+      applyFilter();
+    });
+  }
+
+  function addSatelliteOverlay() {
+    if (map.getSource('satellite-blend')) return;
+    map.addSource('satellite-blend', {
+      type: 'raster',
+      url: 'mapbox://mapbox.satellite',
+      tileSize: 256
+    });
+    map.addLayer({
+      id: 'satellite-blend-layer',
+      type: 'raster',
+      source: 'satellite-blend',
+      paint: { 'raster-opacity': 0.45 }
+    }, map.getStyle().layers[0]?.id);
+  }
+
+  // ── Opacity ──
+  function updateOpacity(val) {
+    currentOpacity = val / 100;
+    document.getElementById('val-opacity').textContent = val + '%';
+    applyFilter();
+  }
+
+  // ── Saturation ──
+  function updateSaturation(val) {
+    currentSaturation = val / 100;
+    document.getElementById('val-sat').textContent = val + '%';
+    applyFilter();
+  }
+
+  // Apply both opacity and saturation via map filter
+  function applyFilter() {
+    try {
+      // Opacity: fade all layers by adjusting the map container
+      document.getElementById('map').style.opacity = currentOpacity;
+
+      // Saturation: CSS filter on the canvas
+      const sat = currentSaturation;
+      const canvas = map.getCanvas();
+      canvas.style.filter = sat < 1 ? `saturate(${sat})` : '';
+    } catch(e) {}
+  }
+
+  // ── Camera ──
+  function updateCamera() {
+    const pitch   = parseFloat(document.getElementById('sl-pitch').value);
+    const bearing = parseFloat(document.getElementById('sl-bearing').value);
+    document.getElementById('val-pitch').textContent   = pitch + '°';
+    document.getElementById('val-bearing').textContent = bearing + '°';
+    map.easeTo({ pitch, bearing, duration: 300 });
+    drawCamDiagram(pitch, bearing);
+  }
+
+  function resetCamera() {
+    document.getElementById('sl-pitch').value   = 0;
+    document.getElementById('sl-bearing').value = 0;
+    document.getElementById('val-pitch').textContent   = '0°';
+    document.getElementById('val-bearing').textContent = '0°';
+    map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
+    drawCamDiagram(0, 0);
+  }
+
+  // ── Camera diagram ──
+  function drawCamDiagram(pitch, bearing) {
+    const canvas = document.getElementById('cam-canvas');
+    const ctx    = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // Ground plane (perspective trapezoid)
+    const pitchRatio = pitch / 85;
+    const topWidth   = W * 0.18 + W * 0.55 * (1 - pitchRatio);
+    const topY       = H * 0.15 + H * 0.55 * pitchRatio;
+    const cx         = W / 2;
+
+    ctx.beginPath();
+    ctx.moveTo(cx - topWidth / 2, topY);
+    ctx.lineTo(cx + topWidth / 2, topY);
+    ctx.lineTo(cx + W * 0.38, H - 8);
+    ctx.lineTo(cx - W * 0.38, H - 8);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(74,180,240,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(74,180,240,0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Horizon line
+    ctx.beginPath();
+    ctx.moveTo(cx - topWidth / 2, topY);
+    ctx.lineTo(cx + topWidth / 2, topY);
+    ctx.strokeStyle = 'rgba(74,240,160,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Camera eye
+    const eyeX = cx;
+    const eyeY = H * 0.1;
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#4ab4f0';
+    ctx.fill();
+
+    // Bearing arrow on the right side
+    const arrowCX = W - 22, arrowCY = H / 2;
+    const rad = (bearing - 90) * Math.PI / 180;
+    const ax  = arrowCX + Math.cos(rad) * 12;
+    const ay  = arrowCY + Math.sin(rad) * 12;
+    ctx.beginPath();
+    ctx.moveTo(arrowCX, arrowCY);
+    ctx.lineTo(ax, ay);
+    ctx.strokeStyle = '#4af0a0';
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#4af0a0';
+    ctx.fill();
+
+    // Labels
+    ctx.font = '9px DM Mono, monospace';
+    ctx.fillStyle = 'rgba(90,98,120,0.8)';
+    ctx.fillText('pitch ' + Math.round(pitch) + '°', 6, H - 8);
+  }
+
+  // Initial diagram
+  drawCamDiagram(0, 0);
+
+  // ── Coords + zoom ──
+  map.on('mousemove', e => {
+    const {lng, lat} = e.lngLat;
+    document.getElementById('coords').textContent =
+      lat.toFixed(4) + '° N  ' + lng.toFixed(4) + '° E';
+  });
+
+  map.on('zoom', () => {
+    document.getElementById('zoom-val').textContent = map.getZoom().toFixed(1);
+  });
+</script>
+</body>
+</html>
