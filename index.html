@@ -473,10 +473,11 @@
   }
 
   // ═══════════════════════════════════════════
-  //  CIRCLES RENDERING
+  //  CIRCLES RENDERING  (canvas markers)
   // ═══════════════════════════════════════════
 
-  // Blend a colour toward greyscale by saturation factor (0=grey, 1=full colour)
+  let circleMarkers = [];
+
   function desaturateRGB(r, g, b, sat) {
     const grey = 0.299 * r + 0.587 * g + 0.114 * b;
     return [
@@ -486,110 +487,110 @@
     ];
   }
 
+  function drawCircleCanvas(d, masterOpacity, masterSat) {
+    const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, masterSat);
+    const fillOpacity   = (d.opacity / 255) * masterOpacity;
+    const borderOpacity = masterOpacity;
+    const radius = (d.height + d.width) / 4;
+    const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1 : 2;
+    const size   = Math.ceil((radius + pad) * 2);
+    const cx     = size / 2;
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    if (d.border === 2) {
+      // BEVEL
+      const bevelWidth = Math.max(1, radius * (d.borderSize / 100));
+      // Dark outer shadow ring
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,0,0,${borderOpacity * 0.55})`;
+      ctx.fill();
+      // Main fill
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius - bevelWidth * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${fr},${fg},${fb},${fillOpacity})`;
+      ctx.fill();
+      // Highlight arc top-left
+      const hlR = radius - bevelWidth * 0.6;
+      ctx.beginPath();
+      ctx.arc(cx, cx, hlR, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.strokeStyle = `rgba(255,255,255,${borderOpacity * 0.7})`;
+      ctx.lineWidth   = bevelWidth * 0.7;
+      ctx.stroke();
+      // Shadow arc bottom-right
+      ctx.beginPath();
+      ctx.arc(cx, cx, hlR, Math.PI * 0.05, Math.PI * 0.95);
+      ctx.strokeStyle = `rgba(0,0,0,${borderOpacity * 0.45})`;
+      ctx.lineWidth   = bevelWidth * 0.5;
+      ctx.stroke();
+    } else {
+      // PLAIN FILL
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${fr},${fg},${fb},${fillOpacity})`;
+      ctx.fill();
+      if (d.border === 1) {
+        // SOLID BORDER — drawn inside radius, perfectly centred
+        ctx.beginPath();
+        ctx.arc(cx, cx, radius - d.borderSize / 2, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0,0,0,${borderOpacity})`;
+        ctx.lineWidth   = d.borderSize;
+        ctx.stroke();
+      }
+    }
+    return canvas;
+  }
+
+  function clearCircleMarkers() {
+    circleMarkers.forEach(m => m.remove());
+    circleMarkers = [];
+  }
+
   function renderCircles() {
-    if (!styleReady) return;
-
-    // Remove old layer/source
-    if (map.getLayer('circles-layer')) map.removeLayer('circles-layer');
-    if (map.getSource('circles-src'))  map.removeSource('circles-src');
-
+    clearCircleMarkers();
     if (!circlesVisible || circleData.length === 0) return;
 
-    // Build GeoJSON — store computed radius and colour as properties
-    const features = circleData.map(d => {
-      // Radius: average of height/width, scaled from pixels to map metres approx
-      // We store pixel size and compute radius in a zoom-independent way using
-      // Mapbox circle-radius in pixels directly
-      const radiusPx = (d.height + d.width) / 4; // average half-size
+    circleData.forEach(d => {
+      const canvas = drawCircleCanvas(d, circlesMasterOpacity, circlesMasterSat);
+      canvas.style.display    = 'block';
+      canvas.style.marginLeft = `-${canvas.width  / 2}px`;
+      canvas.style.marginTop  = `-${canvas.height / 2}px`;
+      canvas.style.cursor     = 'pointer';
 
-      // Apply master saturation to the Excel colour
-      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
-
-      // Apply master opacity × Excel opacity (Excel 0-255 → 0-1)
-      const finalOpacity = (d.opacity / 255) * circlesMasterOpacity;
-
-      return {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-        properties: {
-          name:        d.name,
-          radius:      radiusPx,
-          color:       `rgb(${fr},${fg},${fb})`,
-          opacity:     finalOpacity,
-          border:      d.border,
-          borderSize:  d.borderSize,
-          // Store raw values for re-computation on master slider change
-          rawR: d.r, rawG: d.g, rawB: d.b,
-          rawOpacity: d.opacity / 255
-        }
-      };
-    });
-
-    map.addSource('circles-src', {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features }
-    });
-
-    map.addLayer({
-      id: 'circles-layer',
-      type: 'circle',
-      source: 'circles-src',
-      paint: {
-        'circle-radius':       ['get', 'radius'],
-        'circle-color':        ['get', 'color'],
-        'circle-opacity':      ['get', 'opacity'],
-        'circle-stroke-width':   ['case', ['==', ['get', 'border'], 1], ['get', 'borderSize'], 0],
-        'circle-stroke-color':   '#000000',
-        'circle-stroke-opacity': 1.0
-      }
-    });
-
-    // Tooltip on hover
-    map.on('mouseenter', 'circles-layer', e => {
-      map.getCanvas().style.cursor = 'pointer';
-      const name = e.features[0].properties.name;
-      if (name) {
+      canvas.addEventListener('mouseenter', () => {
         tooltip.style.display = 'block';
-        tooltip.textContent = name;
-      }
-    });
-    map.on('mousemove', 'circles-layer', e => {
-      tooltip.style.left = (e.originalEvent.clientX + 12) + 'px';
-      tooltip.style.top  = (e.originalEvent.clientY - 28) + 'px';
-      tooltip.textContent = e.features[0].properties.name;
-    });
-    map.on('mouseleave', 'circles-layer', () => {
-      map.getCanvas().style.cursor = '';
-      tooltip.style.display = 'none';
+        tooltip.textContent   = d.name;
+      });
+      canvas.addEventListener('mousemove', e => {
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top  = (e.clientY  - 28) + 'px';
+      });
+      canvas.addEventListener('mouseleave', () => {
+        tooltip.style.display = 'none';
+      });
+
+      const marker = new mapboxgl.Marker({ element: canvas, anchor: 'center' })
+        .setLngLat([d.lng, d.lat])
+        .addTo(map);
+      circleMarkers.push(marker);
     });
   }
 
-  // Re-render circles when master controls change (updates colour/opacity in place)
   function updateCircleAppearance() {
-    if (!styleReady || !map.getSource('circles-src')) return;
-
-    const features = circleData.map(d => {
-      const radiusPx = (d.height + d.width) / 4;
-      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
-      const finalOpacity = (d.opacity / 255) * circlesMasterOpacity;
-      return {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-        properties: {
-          name: d.name, radius: radiusPx,
-          color: `rgb(${fr},${fg},${fb})`,
-          opacity: finalOpacity,
-          border: d.border, borderSize: d.borderSize
-        }
-      };
-    });
-
-    map.getSource('circles-src').setData({
-      type: 'FeatureCollection', features
+    circleMarkers.forEach((marker, i) => {
+      const d      = circleData[i];
+      const canvas = marker.getElement();
+      const ctx    = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const fresh  = drawCircleCanvas(d, circlesMasterOpacity, circlesMasterSat);
+      ctx.drawImage(fresh, 0, 0);
     });
   }
 
-  // ── Circles master controls ──
   function onCirclesToggle() {
     circlesVisible = document.getElementById('tog-circles').checked;
     renderCircles();
