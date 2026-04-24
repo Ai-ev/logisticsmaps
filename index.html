@@ -318,6 +318,33 @@
     </div>
   </div>
 
+  <!-- ── LINES LAYER ── -->
+  <div class="section">
+    <div class="layer-top" style="margin-bottom:12px;">
+      <label class="pill">
+        <input type="checkbox" id="tog-lines" checked onchange="onLinesToggle()" />
+        <div class="pill-track"></div><div class="pill-thumb"></div>
+      </label>
+      <span class="layer-name" style="font-family:'Syne',sans-serif; font-size:10px; letter-spacing:1px; text-transform:uppercase;">Lines</span>
+      <span class="count-badge" id="lines-count">0 items</span>
+    </div>
+    <div class="sl-row no-indent">
+      <span class="sl-label">Width</span>
+      <input type="range" class="purple" id="sl-lines-w" min="10" max="300" value="100" oninput="onLinesWidth(this.value)" />
+      <span class="sl-val purple" id="val-lines-w">100%</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Opacity</span>
+      <input type="range" class="purple" id="sl-lines-op" min="0" max="100" value="100" oninput="onLinesOpacity(this.value)" />
+      <span class="sl-val purple" id="val-lines-op">100%</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Saturation</span>
+      <input type="range" class="purple" id="sl-lines-sat" min="0" max="100" value="100" oninput="onLinesSaturation(this.value)" />
+      <span class="sl-val purple" id="val-lines-sat">100%</span>
+    </div>
+  </div>
+
   <!-- ── CAMERA ── -->
   <div class="section">
     <div class="section-label">Camera / 3D View</div>
@@ -381,6 +408,15 @@
   // Raw bar data from Excel
   let barData = [];
 
+  // Lines master controls
+  let linesVisible      = true;
+  let linesMasterOpacity = 1.0;
+  let linesMasterSat     = 1.0;
+  let linesWidthScale    = 1.0;   // multiplier on Excel width values
+
+  // Raw line data from Excel
+  let lineData = [];
+
   // ═══════════════════════════════════════════
   //  MAP INIT
   // ═══════════════════════════════════════════
@@ -402,6 +438,7 @@
     applyMapLayers();
     renderCircles();
     renderBars();
+    renderLines();
   });
 
   // ═══════════════════════════════════════════
@@ -450,7 +487,7 @@
     document.getElementById('theme-light').classList.toggle('active', theme === 'light');
     styleReady = false;
     map.setStyle(VECTOR_STYLES[theme]);
-    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); renderBars(); });
+    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); renderBars(); renderLines(); });
   }
   function onSatToggle()      { satVisible = document.getElementById('tog-sat').checked; applyMapLayers(); }
   function onSatOpacity(v)    { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyMapLayers(); }
@@ -533,6 +570,31 @@
         document.getElementById('bars-count').textContent = barData.length + ' items';
         renderBars();
 
+        // Parse Lines sheet
+        lineData = [];
+        const lineSheet = wb.Sheets['Lines'];
+        if (lineSheet) {
+          const rows = XLSX.utils.sheet_to_json(lineSheet);
+          lineData = rows.map(r => ({
+            fromName: r['From Name']                                  || '',
+            fromLng:  parseFloat(r['From Longitude'])                 || 0,
+            fromLat:  parseFloat(r['From Latitude'])                  || 0,
+            toName:   r['To Name']                                    || '',
+            toLng:    parseFloat(r['To Longitude'])                   || 0,
+            toLat:    parseFloat(r['To Latitude'])                    || 0,
+            type:     parseInt(r['Type (0=straight, 1= curved)'])     || 0,
+            opacity:  parseInt(r['Opacity (0-255)'])                  ?? 120,
+            r:        parseInt(r['Red Color (0-255)'])                || 0,
+            g:        parseInt(r['Green Color (0-255)'])              || 0,
+            b:        parseInt(r['Blue Color (0-255)'])               || 0,
+            width:    parseFloat(r['Width'])                          || 1,
+            arrow:    parseInt(r['Arrow (0 = None, 1 = Start, 2 = End, 3 = Both)']) || 0,
+          })).filter(d => !isNaN(d.fromLng) && !isNaN(d.fromLat) && !isNaN(d.toLng) && !isNaN(d.toLat));
+        }
+
+        document.getElementById('lines-count').textContent = lineData.length + ' items';
+        renderLines();
+
       } catch(err) {
         alert('Could not read Excel file: ' + err.message);
       }
@@ -543,12 +605,15 @@
   function clearFile() {
     circleData = [];
     barData    = [];
+    lineData   = [];
     document.getElementById('file-input').value = '';
     document.getElementById('file-status').classList.remove('visible');
     document.getElementById('circles-count').textContent = '0 items';
     document.getElementById('bars-count').textContent    = '0 items';
+    document.getElementById('lines-count').textContent   = '0 items';
     renderCircles();
     renderBars();
+    renderLines();
   }
 
   // ═══════════════════════════════════════════
@@ -869,6 +934,220 @@
     barsMasterSat = v / 100;
     document.getElementById('val-bars-sat').textContent = v + '%';
     updateBarsAppearance();
+  }
+
+  // ═══════════════════════════════════════════
+  //  LINES RENDERING  (geodesic + curved arcs)
+  // ═══════════════════════════════════════════
+
+  // Build a geodesic (great-circle) polyline between two points.
+  // Returns an array of [lng, lat] coordinates.
+  function geodesicLine(lng1, lat1, lng2, lat2, steps) {
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    const φ1 = toRad(lat1), λ1 = toRad(lng1);
+    const φ2 = toRad(lat2), λ2 = toRad(lng2);
+
+    // Angular distance between points
+    const d = 2 * Math.asin(Math.sqrt(
+      Math.sin((φ2 - φ1) / 2) ** 2 +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2
+    ));
+
+    if (d === 0) return [[lng1, lat1], [lng2, lat2]];
+
+    const coords = [];
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const A = Math.sin((1 - f) * d) / Math.sin(d);
+      const B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+      const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+      const z = A * Math.sin(φ1)               + B * Math.sin(φ2);
+      const φ = Math.atan2(z, Math.sqrt(x*x + y*y));
+      const λ = Math.atan2(y, x);
+      coords.push([toDeg(λ), toDeg(φ)]);
+    }
+    return coords;
+  }
+
+  // Build a visibly-curved arc (bends upward in latitude above the straight path)
+  function curvedLine(lng1, lat1, lng2, lat2, steps) {
+    const coords = [];
+    // Midpoint bulge: push midpoint latitude upward by a fraction of the horizontal distance
+    const midLng = (lng1 + lng2) / 2;
+    const midLat = (lat1 + lat2) / 2;
+    const dLng   = lng2 - lng1;
+    const dLat   = lat2 - lat1;
+    const dist   = Math.sqrt(dLng*dLng + dLat*dLat);
+    const bulge  = dist * 0.25;   // 25% of linear distance → bend upward
+
+    // Perpendicular direction for the bulge — push to the "upper" side
+    const px = -dLat / (dist || 1);
+    const py =  dLng / (dist || 1);
+    const sign = py >= 0 ? 1 : -1;
+    const ctrlLng = midLng + px * bulge * sign;
+    const ctrlLat = midLat + py * bulge * sign;
+
+    // Quadratic Bezier curve
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const u = 1 - t;
+      const x = u*u * lng1 + 2*u*t * ctrlLng + t*t * lng2;
+      const y = u*u * lat1 + 2*u*t * ctrlLat + t*t * lat2;
+      coords.push([x, y]);
+    }
+    return coords;
+  }
+
+  // Arrow head marker — small triangular canvas rotated toward direction
+  function drawArrowCanvas(r, g, b, size, direction) {
+    const canvas = document.createElement('canvas');
+    canvas.width  = size * 2;
+    canvas.height = size * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(size, size);
+    ctx.rotate(direction);
+    ctx.beginPath();
+    ctx.moveTo(size * 0.9, 0);
+    ctx.lineTo(-size * 0.5, -size * 0.6);
+    ctx.lineTo(-size * 0.5,  size * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    return canvas;
+  }
+
+  let lineArrowMarkers = [];
+
+  function clearLineArrows() {
+    lineArrowMarkers.forEach(m => m.remove());
+    lineArrowMarkers = [];
+  }
+
+  function renderLines() {
+    if (!styleReady) return;
+
+    // Remove old line layer/source
+    if (map.getLayer('lines-layer')) map.removeLayer('lines-layer');
+    if (map.getSource('lines-src'))  map.removeSource('lines-src');
+    clearLineArrows();
+
+    if (!linesVisible || lineData.length === 0) return;
+
+    const features = lineData.map(d => {
+      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+      const coords = d.type === 1
+        ? curvedLine(d.fromLng, d.fromLat, d.toLng, d.toLat, 64)
+        : geodesicLine(d.fromLng, d.fromLat, d.toLng, d.toLat, 64);
+
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {
+          name:    `${d.fromName} → ${d.toName}`,
+          color:   `rgb(${fr},${fg},${fb})`,
+          opacity: (d.opacity / 255) * linesMasterOpacity,
+          width:   (d.width / 10) * linesWidthScale   // scale Excel widths to sensible px
+        }
+      };
+    });
+
+    map.addSource('lines-src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features }
+    });
+
+    // Place lines UNDER the circle markers / bars for a clean hierarchy
+    // (Lines live on the map canvas so circles naturally render on top)
+    map.addLayer({
+      id: 'lines-layer',
+      type: 'line',
+      source: 'lines-src',
+      layout: {
+        'line-cap':  'round',
+        'line-join': 'round'
+      },
+      paint: {
+        'line-color':   ['get', 'color'],
+        'line-opacity': ['get', 'opacity'],
+        'line-width':   ['get', 'width']
+      }
+    });
+
+    // Add arrows where requested
+    lineData.forEach((d, i) => {
+      if (d.arrow === 0) return;
+
+      const coords = features[i].geometry.coordinates;
+      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+      const arrowSize = Math.max(6, (d.width / 10) * linesWidthScale * 2);
+
+      const placeArrow = (coord, prev) => {
+        const dx = coord[0] - prev[0];
+        const dy = coord[1] - prev[1];
+        const angle = Math.atan2(dy, dx);
+        const canvas = drawArrowCanvas(fr, fg, fb, arrowSize, angle);
+        const marker = new mapboxgl.Marker({
+          element: canvas,
+          anchor: 'center',
+          pitchAlignment: 'map',
+          rotationAlignment: 'map'
+        })
+          .setLngLat(coord)
+          .addTo(map);
+        lineArrowMarkers.push(marker);
+      };
+
+      if (d.arrow === 1 || d.arrow === 3) {
+        // Start arrow — direction reversed (pointing backward along the line)
+        placeArrow(coords[0], coords[1]);
+      }
+      if (d.arrow === 2 || d.arrow === 3) {
+        // End arrow — direction forward
+        placeArrow(coords[coords.length - 1], coords[coords.length - 2]);
+      }
+    });
+
+    // Tooltip on lines
+    map.on('mouseenter', 'lines-layer', e => {
+      map.getCanvas().style.cursor = 'pointer';
+      tooltip.style.display = 'block';
+      tooltip.textContent   = e.features[0].properties.name;
+    });
+    map.on('mousemove', 'lines-layer', e => {
+      tooltip.style.left = (e.originalEvent.clientX + 12) + 'px';
+      tooltip.style.top  = (e.originalEvent.clientY - 28) + 'px';
+      tooltip.textContent = e.features[0].properties.name;
+    });
+    map.on('mouseleave', 'lines-layer', () => {
+      map.getCanvas().style.cursor = '';
+      tooltip.style.display = 'none';
+    });
+  }
+
+  function onLinesToggle() {
+    linesVisible = document.getElementById('tog-lines').checked;
+    renderLines();
+  }
+  function onLinesWidth(v) {
+    linesWidthScale = v / 100;
+    document.getElementById('val-lines-w').textContent = v + '%';
+    renderLines();
+  }
+  function onLinesOpacity(v) {
+    linesMasterOpacity = v / 100;
+    document.getElementById('val-lines-op').textContent = v + '%';
+    renderLines();
+  }
+  function onLinesSaturation(v) {
+    linesMasterSat = v / 100;
+    document.getElementById('val-lines-sat').textContent = v + '%';
+    renderLines();
   }
 
   // ═══════════════════════════════════════════
