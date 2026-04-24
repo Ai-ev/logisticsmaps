@@ -281,6 +281,33 @@
     </div>
   </div>
 
+  <!-- ── BARS LAYER ── -->
+  <div class="section">
+    <div class="layer-top" style="margin-bottom:12px;">
+      <label class="pill">
+        <input type="checkbox" id="tog-bars" checked onchange="onBarsToggle()" />
+        <div class="pill-track"></div><div class="pill-thumb"></div>
+      </label>
+      <span class="layer-name" style="font-family:'Syne',sans-serif; font-size:10px; letter-spacing:1px; text-transform:uppercase;">Bars</span>
+      <span class="count-badge" id="bars-count">0 items</span>
+    </div>
+    <div class="sl-row no-indent">
+      <span class="sl-label">Max Height</span>
+      <input type="range" class="purple" id="sl-bars-height" min="1000" max="200000" value="50000" step="1000" oninput="onBarsHeight(this.value)" />
+      <span class="sl-val purple" id="val-bars-height">50km</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Opacity</span>
+      <input type="range" class="purple" id="sl-bars-op" min="0" max="100" value="100" oninput="onBarsOpacity(this.value)" />
+      <span class="sl-val purple" id="val-bars-op">100%</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Saturation</span>
+      <input type="range" class="purple" id="sl-bars-sat" min="0" max="100" value="100" oninput="onBarsSaturation(this.value)" />
+      <span class="sl-val purple" id="val-bars-sat">100%</span>
+    </div>
+  </div>
+
   <!-- ── CAMERA ── -->
   <div class="section">
     <div class="section-label">Camera / 3D View</div>
@@ -332,6 +359,15 @@
   // Raw circle data from Excel
   let circleData = [];
 
+  // Bars master controls
+  let barsVisible      = true;
+  let barsMasterOpacity = 1.0;
+  let barsMasterSat     = 1.0;
+  let barsMaxHeight     = 50000;   // metres — what Relative Height 100 maps to
+
+  // Raw bar data from Excel
+  let barData = [];
+
   // ═══════════════════════════════════════════
   //  MAP INIT
   // ═══════════════════════════════════════════
@@ -352,6 +388,7 @@
     ensureSatLayer();
     applyMapLayers();
     renderCircles();
+    renderBars();
   });
 
   // ═══════════════════════════════════════════
@@ -400,7 +437,7 @@
     document.getElementById('theme-light').classList.toggle('active', theme === 'light');
     styleReady = false;
     map.setStyle(VECTOR_STYLES[theme]);
-    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); });
+    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); renderBars(); });
   }
   function onSatToggle()      { satVisible = document.getElementById('tog-sat').checked; applyMapLayers(); }
   function onSatOpacity(v)    { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyMapLayers(); }
@@ -457,6 +494,30 @@
         document.getElementById('circles-count').textContent = circleData.length + ' items';
 
         renderCircles();
+
+        // Parse Bars sheet
+        barData = [];
+        const barSheet = wb.Sheets['Bars'];
+        if (barSheet) {
+          const rows = XLSX.utils.sheet_to_json(barSheet);
+          barData = rows.map(r => ({
+            name:       r['Name']                          || '',
+            type:       parseInt(r['Type (0 = round, 1 = square)']) || 0,
+            lng:        parseFloat(r['Longitude'])         || 0,
+            lat:        parseFloat(r['Latitude'])          || 0,
+            opacity:    parseInt(r['Opacity (0-255)'])     ?? 170,
+            r:          parseInt(r['Red Color (0-255)'])   || 0,
+            g:          parseInt(r['Green Color (0-255)']) || 0,
+            b:          parseInt(r['Blue Color (0-255)'])  || 0,
+            relHeight:  parseFloat(r['Relative Height'])   || 0,
+            border:     parseInt(r['Border (On = 1, Off = 0)']) || 0,
+            borderSize: parseInt(r['Border Size'])         || 1,
+          })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
+        }
+
+        document.getElementById('bars-count').textContent = barData.length + ' items';
+        renderBars();
+
       } catch(err) {
         alert('Could not read Excel file: ' + err.message);
       }
@@ -466,10 +527,13 @@
 
   function clearFile() {
     circleData = [];
+    barData    = [];
     document.getElementById('file-input').value = '';
     document.getElementById('file-status').classList.remove('visible');
     document.getElementById('circles-count').textContent = '0 items';
+    document.getElementById('bars-count').textContent    = '0 items';
     renderCircles();
+    renderBars();
   }
 
   // ═══════════════════════════════════════════
@@ -643,6 +707,135 @@
     circlesMasterSat = v / 100;
     document.getElementById('val-circ-sat').textContent = v + '%';
     updateCircleAppearance();
+  }
+
+  // ═══════════════════════════════════════════
+  //  BARS RENDERING  (fill-extrusion layer)
+  // ═══════════════════════════════════════════
+
+  // Build a circle polygon (approximated as N-gon) around lng/lat
+  // radius in degrees (approx: 0.01° ≈ 1km at mid latitudes)
+  function circlePolygon(lng, lat, radiusDeg, steps) {
+    const coords = [];
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * 2 * Math.PI;
+      coords.push([
+        lng + radiusDeg * Math.cos(angle),
+        lat + radiusDeg * Math.sin(angle) * 0.6   // 0.6 corrects lat/lng aspect
+      ]);
+    }
+    return coords;
+  }
+
+  // Build a small square polygon around lng/lat
+  function squarePolygon(lng, lat, halfDeg) {
+    const h = halfDeg;
+    const v = halfDeg * 0.6;
+    return [
+      [lng - h, lat - v],
+      [lng + h, lat - v],
+      [lng + h, lat + v],
+      [lng - h, lat + v],
+      [lng - h, lat - v]
+    ];
+  }
+
+  function renderBars() {
+    if (!styleReady) return;
+
+    // Remove old layer/source
+    if (map.getLayer('bars-layer'))        map.removeLayer('bars-layer');
+    if (map.getLayer('bars-layer-border')) map.removeLayer('bars-layer-border');
+    if (map.getSource('bars-src'))         map.removeSource('bars-src');
+
+    if (!barsVisible || barData.length === 0) return;
+
+    // Base width: ~0.08° at full zoom — feels natural at European scale
+    const baseRadiusDeg = 0.08;
+
+    const features = barData.map(d => {
+      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, barsMasterSat);
+      const fillOpacity   = (d.opacity / 255) * barsMasterOpacity;
+      const heightM       = (d.relHeight / 100) * barsMaxHeight;
+
+      const coords = d.type === 1
+        ? squarePolygon(d.lng, d.lat, baseRadiusDeg)
+        : circlePolygon(d.lng, d.lat, baseRadiusDeg, 18);
+
+      return {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [coords] },
+        properties: {
+          name:        d.name,
+          height:      heightM,
+          color:       `rgb(${fr},${fg},${fb})`,
+          opacity:     fillOpacity,
+          border:      d.border,
+          borderSize:  d.borderSize
+        }
+      };
+    });
+
+    map.addSource('bars-src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features }
+    });
+
+    // Main extrusion
+    map.addLayer({
+      id: 'bars-layer',
+      type: 'fill-extrusion',
+      source: 'bars-src',
+      paint: {
+        'fill-extrusion-color':   ['get', 'color'],
+        'fill-extrusion-height':  ['get', 'height'],
+        'fill-extrusion-base':    0,
+        'fill-extrusion-opacity': ['get', 'opacity']
+      }
+    });
+
+    // Tooltip
+    map.on('mouseenter', 'bars-layer', e => {
+      map.getCanvas().style.cursor = 'pointer';
+      tooltip.style.display  = 'block';
+      tooltip.textContent    = e.features[0].properties.name;
+    });
+    map.on('mousemove', 'bars-layer', e => {
+      tooltip.style.left = (e.originalEvent.clientX + 12) + 'px';
+      tooltip.style.top  = (e.originalEvent.clientY  - 28) + 'px';
+      tooltip.textContent = e.features[0].properties.name;
+    });
+    map.on('mouseleave', 'bars-layer', () => {
+      map.getCanvas().style.cursor = '';
+      tooltip.style.display = 'none';
+    });
+  }
+
+  function updateBarsAppearance() {
+    if (!styleReady || !map.getSource('bars-src')) return;
+    // Full re-render needed since height and colour change together
+    renderBars();
+  }
+
+  function onBarsToggle() {
+    barsVisible = document.getElementById('tog-bars').checked;
+    renderBars();
+  }
+  function onBarsHeight(v) {
+    barsMaxHeight = parseInt(v);
+    const km = (barsMaxHeight / 1000).toFixed(0);
+    document.getElementById('val-bars-height').textContent = km + 'km';
+    updateBarsAppearance();
+  }
+  function onBarsOpacity(v) {
+    barsMasterOpacity = v / 100;
+    document.getElementById('val-bars-op').textContent = v + '%';
+    updateBarsAppearance();
+  }
+  function onBarsSaturation(v) {
+    barsMasterSat = v / 100;
+    document.getElementById('val-bars-sat').textContent = v + '%';
+    updateBarsAppearance();
   }
 
   // ═══════════════════════════════════════════
