@@ -18,6 +18,7 @@
       --border:  #1e2230;
       --accent:  #4af0a0;
       --accent2: #4ab4f0;
+      --amber:   #f0c44a;
       --text:    #e8ecf4;
       --muted:   #5a6278;
       --track:   #1e2230;
@@ -27,67 +28,72 @@
     html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'DM Mono', monospace; color: var(--text); }
     #map { position: absolute; inset: 0; }
 
+    /* ── HEADER ── */
     #header {
       position: absolute; top: 0; left: 0; right: 0; z-index: 10;
-      display: flex; align-items: center; gap: 16px;
+      display: flex; align-items: center;
       padding: 14px 24px;
       background: linear-gradient(to bottom, rgba(10,12,16,0.92) 0%, rgba(10,12,16,0) 100%);
       pointer-events: none;
     }
-    #header .logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -0.5px; }
-    #header .logo span { color: var(--accent); }
-    #header .tag { font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+    .logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -0.5px; }
+    .logo span { color: var(--accent); }
+    .tag { font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
 
+    /* ── PANEL ── */
     #panel {
       position: absolute; top: 70px; right: 20px; z-index: 10;
-      width: 276px;
+      width: 272px;
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
       box-shadow: 0 8px 40px rgba(0,0,0,0.6);
     }
-
     .panel-header {
       padding: 12px 16px; background: var(--bg);
       border-bottom: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
     }
     .panel-header span { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
-    .panel-header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 
     .section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .section:last-child { border-bottom: none; }
     .section-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
 
-    /* layer rows */
+    /* ── LAYER ROWS ── */
     .layer-row { margin-bottom: 12px; }
     .layer-row:last-child { margin-bottom: 0; }
-    .layer-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .layer-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 
-    /* pill toggle */
-    .pill-toggle { position: relative; width: 32px; height: 18px; flex-shrink: 0; cursor: pointer; }
-    .pill-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    /* pill */
+    .pill { position: relative; width: 32px; height: 18px; flex-shrink: 0; cursor: pointer; }
+    .pill input { opacity: 0; width: 0; height: 0; position: absolute; }
     .pill-track { position: absolute; inset: 0; border-radius: 9px; background: var(--border); transition: background 0.2s; }
     .pill-thumb { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform 0.2s, background 0.2s; }
-    .pill-toggle input:checked ~ .pill-track { background: rgba(74,240,160,0.25); }
-    .pill-toggle input:checked ~ .pill-thumb { transform: translateX(14px); background: var(--accent); }
+    .pill input:checked ~ .pill-track { background: rgba(74,240,160,0.25); }
+    .pill input:checked ~ .pill-thumb { transform: translateX(14px); background: var(--accent); }
 
-    .layer-name { font-size: 11px; color: var(--text); flex: 1; letter-spacing: 0.3px; }
+    .layer-name { font-size: 11px; color: var(--text); flex: 1; }
 
+    /* mini buttons */
     .mini-toggle { display: flex; gap: 3px; }
     .mini-btn {
-      padding: 2px 6px; font-size: 9px; letter-spacing: 1px;
+      padding: 2px 7px; font-size: 9px; letter-spacing: 1px;
       border: 1px solid var(--border); border-radius: 4px;
       background: transparent; color: var(--muted);
       font-family: 'DM Mono', monospace; cursor: pointer; transition: all 0.15s;
     }
+    .mini-btn:hover { border-color: var(--accent2); color: var(--text); }
     .mini-btn.active { background: var(--accent2); border-color: var(--accent2); color: #0a0c10; }
 
-    .opacity-row { display: flex; align-items: center; gap: 8px; padding-left: 40px; }
-    .sub-row     { display: flex; align-items: center; gap: 8px; padding-left: 40px; margin-top: 7px; }
-    .opacity-label { font-size: 9px; color: var(--muted); min-width: 46px; }
-    .opacity-val   { font-size: 9px; color: var(--accent); min-width: 30px; text-align: right; }
+    /* slider rows */
+    .sl-row { display: flex; align-items: center; gap: 8px; padding-left: 40px; margin-bottom: 7px; }
+    .sl-row:last-child { margin-bottom: 0; }
+    .sl-label { font-size: 9px; color: var(--muted); min-width: 52px; }
+    .sl-val   { font-size: 9px; min-width: 30px; text-align: right; color: var(--accent); }
+    .sl-val.amber { color: var(--amber); }
 
     input[type=range] {
       -webkit-appearance: none; flex: 1; height: 3px;
@@ -95,30 +101,26 @@
     }
     input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
-      background: var(--accent); box-shadow: 0 0 5px rgba(74,240,160,0.5); transition: transform 0.15s;
+      background: var(--accent); box-shadow: 0 0 5px rgba(74,240,160,0.4); transition: transform 0.15s;
     }
     input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
-    input[type=range].blue::-webkit-slider-thumb { background: var(--accent2); box-shadow: 0 0 5px rgba(74,180,240,0.5); }
-    input[type=range].amber::-webkit-slider-thumb { background: #f0c44a; box-shadow: 0 0 5px rgba(240,196,74,0.5); }
+    input[type=range].blue::-webkit-slider-thumb   { background: var(--accent2); box-shadow: 0 0 5px rgba(74,180,240,0.4); }
+    input[type=range].amber::-webkit-slider-thumb  { background: var(--amber);   box-shadow: 0 0 5px rgba(240,196,74,0.4); }
 
-    .control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .control-row:last-child { margin-bottom: 0; }
-    .control-label { font-size: 10px; color: var(--muted); min-width: 64px; }
-    .control-value { font-size: 10px; color: var(--accent); min-width: 32px; text-align: right; }
+    /* camera section reuses sl-row style */
+    .cam-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .cam-row:last-child { margin-bottom: 0; }
+    .cam-label { font-size: 10px; color: var(--muted); min-width: 64px; }
+    .cam-val   { font-size: 10px; color: var(--accent2); min-width: 32px; text-align: right; }
 
-    /* layer order badge */
-    .order-badge {
-      font-size: 8px; color: var(--muted); letter-spacing: 1px;
-      border: 1px solid var(--border); border-radius: 3px;
-      padding: 1px 5px; opacity: 0.6;
+    .reset-btn {
+      flex: 1; padding: 6px; background: transparent; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 6px; font-family: 'DM Mono', monospace;
+      font-size: 10px; cursor: pointer; letter-spacing: 1px; transition: all 0.15s;
     }
+    .reset-btn:hover { border-color: var(--accent2); color: var(--text); }
 
-    #cam-canvas {
-      display: block; width: 100%; height: 56px;
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 6px; margin-bottom: 12px;
-    }
-
+    /* ── FOOT BADGES ── */
     #coords {
       position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
       z-index: 10; background: rgba(10,12,16,0.85);
@@ -157,52 +159,44 @@
   <div class="section">
     <div class="section-label">Background Layers</div>
 
-    <!-- 1 · Vector (base) -->
+    <!-- Vector -->
     <div class="layer-row">
       <div class="layer-top">
-        <label class="pill-toggle">
+        <label class="pill">
           <input type="checkbox" id="tog-vector" checked onchange="onVectorToggle()" />
-          <div class="pill-track"></div>
-          <div class="pill-thumb"></div>
+          <div class="pill-track"></div><div class="pill-thumb"></div>
         </label>
         <span class="layer-name">Vector</span>
-        <span class="order-badge">BASE</span>
         <div class="mini-toggle">
           <button class="mini-btn active" id="theme-dark"  onclick="setVectorTheme('dark')">DARK</button>
           <button class="mini-btn"        id="theme-light" onclick="setVectorTheme('light')">LIGHT</button>
         </div>
       </div>
-      <div class="opacity-row">
-        <span class="opacity-label">Opacity</span>
+      <div class="sl-row">
+        <span class="sl-label">Opacity</span>
         <input type="range" id="sl-vec-op" min="0" max="100" value="100" oninput="onVectorOpacity(this.value)" />
-        <span class="opacity-val" id="val-vec-op">100%</span>
+        <span class="sl-val" id="val-vec-op">100%</span>
       </div>
     </div>
 
-    <!-- 2 · Raster (overlay) -->
+    <!-- Satellite -->
     <div class="layer-row">
       <div class="layer-top">
-        <label class="pill-toggle">
-          <input type="checkbox" id="tog-raster" onchange="onRasterToggle()" />
-          <div class="pill-track"></div>
-          <div class="pill-thumb"></div>
+        <label class="pill">
+          <input type="checkbox" id="tog-sat" onchange="onSatToggle()" />
+          <div class="pill-track"></div><div class="pill-thumb"></div>
         </label>
-        <span class="layer-name">Raster</span>
-        <span class="order-badge">TOP</span>
-        <div class="mini-toggle">
-          <button class="mini-btn active" id="raster-terrain"    onclick="setRasterType('terrain')">TERRAIN</button>
-          <button class="mini-btn"        id="raster-satellite"  onclick="setRasterType('satellite')">SAT</button>
-        </div>
+        <span class="layer-name">Satellite</span>
       </div>
-      <div class="opacity-row">
-        <span class="opacity-label">Opacity</span>
-        <input type="range" id="sl-raster-op" min="0" max="100" value="70" oninput="onRasterOpacity(this.value)" />
-        <span class="opacity-val" id="val-raster-op">70%</span>
+      <div class="sl-row">
+        <span class="sl-label">Opacity</span>
+        <input type="range" id="sl-sat-op" min="0" max="100" value="70" oninput="onSatOpacity(this.value)" />
+        <span class="sl-val" id="val-sat-op">70%</span>
       </div>
-      <div class="sub-row">
-        <span class="opacity-label">Saturation</span>
-        <input type="range" class="amber" id="sl-raster-sat" min="0" max="100" value="100" oninput="onRasterSaturation(this.value)" />
-        <span class="opacity-val" id="val-raster-sat" style="color:#f0c44a;">100%</span>
+      <div class="sl-row">
+        <span class="sl-label">Saturation</span>
+        <input type="range" class="amber" id="sl-sat-sat" min="0" max="100" value="100" oninput="onSatSaturation(this.value)" />
+        <span class="sl-val amber" id="val-sat-sat">100%</span>
       </div>
     </div>
 
@@ -211,22 +205,19 @@
   <!-- CAMERA -->
   <div class="section">
     <div class="section-label">Camera / 3D View</div>
-    <canvas id="cam-canvas" width="500" height="80"></canvas>
-    <div class="control-row">
-      <span class="control-label">Pitch</span>
+    <div class="cam-row">
+      <span class="cam-label">Pitch</span>
       <input type="range" class="blue" id="sl-pitch" min="0" max="85" value="0" oninput="updateCamera()" />
-      <span class="control-value" id="val-pitch">0°</span>
+      <span class="cam-val" id="val-pitch">0°</span>
     </div>
-    <div class="control-row">
-      <span class="control-label">Bearing</span>
+    <div class="cam-row">
+      <span class="cam-label">Bearing</span>
       <input type="range" class="blue" id="sl-bearing" min="-180" max="180" value="0" oninput="updateCamera()" />
-      <span class="control-value" id="val-bearing">0°</span>
+      <span class="cam-val" id="val-bearing">0°</span>
     </div>
-    <div class="control-row">
-      <span class="control-label">Reset</span>
-      <button onclick="resetCamera()" style="flex:1;padding:6px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;letter-spacing:1px;transition:all 0.15s;"
-        onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--text)'"
-        onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">RESET CAMERA</button>
+    <div class="cam-row">
+      <span class="cam-label">Reset</span>
+      <button class="reset-btn" onclick="resetCamera()">RESET CAMERA</button>
     </div>
   </div>
 
@@ -238,33 +229,18 @@
 <script>
   mapboxgl.accessToken = 'pk.eyJ1IjoibWF0dGlhc2JtIiwiYSI6ImNtb2NqcTdoYzAxa28ycHBlNDJjMnU5N2kifQ.qkqA4r5gtFbtSX3NlrKkPA';
 
-  // ── Mapbox tile sources ──
-  // Vector base styles — monochrome (greyscale) versions
   const VECTOR_STYLES = {
     dark:  'mapbox://styles/mapbox/dark-v11',
     light: 'mapbox://styles/mapbox/light-v11'
   };
 
-  // Raster overlay tile URLs
-  const RASTER_TILES = {
-    terrain:   'mapbox://mapbox.terrain-rgb',   // replaced below with outdoors raster
-    satellite: 'mapbox://mapbox.satellite'
-  };
-
-  // We use actual raster tile endpoints for the overlay
-  const RASTER_SOURCES = {
-    terrain:   { type: 'raster', url: 'mapbox://mapbox.outdoors',  tileSize: 256 },
-    satellite: { type: 'raster', url: 'mapbox://mapbox.satellite', tileSize: 256 }
-  };
-
-  let vectorTheme    = 'dark';
-  let vectorVisible  = true;
-  let vectorOpacity  = 1.0;
-  let rasterVisible  = false;
-  let rasterOpacity  = 0.7;
-  let rasterSat      = 1.0;
-  let rasterType     = 'terrain';
-  let styleReady     = false;
+  let vectorTheme   = 'dark';
+  let vectorVisible = true;
+  let vectorOpacity = 1.0;
+  let satVisible    = false;
+  let satOpacity    = 0.7;
+  let satSat        = 1.0;   // 1 = full colour, 0 = greyscale
+  let styleReady    = false;
 
   const map = new mapboxgl.Map({
     container: 'map',
@@ -280,73 +256,64 @@
 
   map.on('style.load', () => {
     styleReady = true;
-    ensureRasterLayer();
+    ensureSatLayer();
     applyAll();
   });
 
-  // ── Raster layer management ──
-  // Raster is added ON TOP of vector (no insertion point = appended last = on top)
-  function ensureRasterLayer() {
-    // Remove existing raster layer/source so we can swap type
-    if (map.getLayer('raster-overlay')) map.removeLayer('raster-overlay');
-    if (map.getSource('raster-src'))    map.removeSource('raster-src');
-
-    const srcDef = RASTER_SOURCES[rasterType];
-    map.addSource('raster-src', srcDef);
-    map.addLayer({
-      id: 'raster-overlay',
-      type: 'raster',
-      source: 'raster-src',
-      paint: {
-        'raster-opacity':    0,
-        'raster-saturation': 0   // -1=greyscale, 0=normal, 1=vivid; we map 0–100% → -1 to 1
-      }
-    });
-    // No insertion point argument = layer added on TOP of all vector layers ✓
+  // ── Satellite layer — added LAST so it sits on top of all vector layers ──
+  function ensureSatLayer() {
+    if (!map.getSource('sat-src')) {
+      map.addSource('sat-src', {
+        type: 'raster',
+        url: 'mapbox://mapbox.satellite',
+        tileSize: 256
+      });
+    }
+    if (!map.getLayer('sat-layer')) {
+      // No insertion point = appended on top of everything
+      map.addLayer({
+        id: 'sat-layer',
+        type: 'raster',
+        source: 'sat-src',
+        paint: { 'raster-opacity': 0, 'raster-saturation': 0 }
+      });
+    }
   }
 
   function applyAll() {
     if (!styleReady) return;
 
-    // ── Raster overlay ──
+    // Satellite
     try {
-      map.setPaintProperty('raster-overlay', 'raster-opacity',
-        rasterVisible ? rasterOpacity : 0);
-      // Mapbox raster-saturation: -1 = greyscale, 0 = unchanged, 1 = vivid
-      // Our slider: 0% = greyscale (-1), 100% = full colour (0)
-      const mbSat = (rasterSat - 1.0); // 0→-1, 1→0
-      map.setPaintProperty('raster-overlay', 'raster-saturation', mbSat);
+      map.setPaintProperty('sat-layer', 'raster-opacity',
+        satVisible ? satOpacity : 0);
+      // raster-saturation: -1 = greyscale, 0 = unchanged
+      map.setPaintProperty('sat-layer', 'raster-saturation', satSat - 1.0);
     } catch(e) {}
 
-    // ── Vector opacity ──
-    const target = vectorVisible ? vectorOpacity : 0;
+    // Vector — apply opacity to every non-satellite layer
+    const t = vectorVisible ? vectorOpacity : 0;
     map.getStyle().layers.forEach(layer => {
-      if (layer.id === 'raster-overlay') return;
+      if (layer.id === 'sat-layer') return;
       try {
-        const t = layer.type;
-        if (t === 'background') map.setPaintProperty(layer.id, 'background-opacity', target);
-        if (t === 'fill')       map.setPaintProperty(layer.id, 'fill-opacity',       target);
-        if (t === 'line')       map.setPaintProperty(layer.id, 'line-opacity',       target);
-        if (t === 'circle')     map.setPaintProperty(layer.id, 'circle-opacity',     target);
-        if (t === 'raster')     map.setPaintProperty(layer.id, 'raster-opacity',     target);
-        if (t === 'symbol') {
-          map.setPaintProperty(layer.id, 'icon-opacity', target);
-          map.setPaintProperty(layer.id, 'text-opacity', target);
+        const lt = layer.type;
+        if (lt === 'background') map.setPaintProperty(layer.id, 'background-opacity', t);
+        if (lt === 'fill')       map.setPaintProperty(layer.id, 'fill-opacity',       t);
+        if (lt === 'line')       map.setPaintProperty(layer.id, 'line-opacity',       t);
+        if (lt === 'circle')     map.setPaintProperty(layer.id, 'circle-opacity',     t);
+        if (lt === 'raster')     map.setPaintProperty(layer.id, 'raster-opacity',     t);
+        if (lt === 'symbol') {
+          map.setPaintProperty(layer.id, 'icon-opacity', t);
+          map.setPaintProperty(layer.id, 'text-opacity', t);
         }
       } catch(e) {}
     });
   }
 
-  // ── Controls ──
-  function onVectorToggle() {
-    vectorVisible = document.getElementById('tog-vector').checked;
-    applyAll();
-  }
-  function onVectorOpacity(v) {
-    vectorOpacity = v / 100;
-    document.getElementById('val-vec-op').textContent = v + '%';
-    applyAll();
-  }
+  // ── Handlers ──
+  function onVectorToggle()   { vectorVisible = document.getElementById('tog-vector').checked; applyAll(); }
+  function onVectorOpacity(v) { vectorOpacity = v/100; document.getElementById('val-vec-op').textContent = v+'%'; applyAll(); }
+
   function setVectorTheme(theme) {
     if (vectorTheme === theme) return;
     vectorTheme = theme;
@@ -354,46 +321,20 @@
     document.getElementById('theme-light').classList.toggle('active', theme === 'light');
     styleReady = false;
     map.setStyle(VECTOR_STYLES[theme]);
-    map.once('style.load', () => {
-      styleReady = true;
-      ensureRasterLayer();
-      applyAll();
-    });
+    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyAll(); });
   }
 
-  function onRasterToggle() {
-    rasterVisible = document.getElementById('tog-raster').checked;
-    applyAll();
-  }
-  function onRasterOpacity(v) {
-    rasterOpacity = v / 100;
-    document.getElementById('val-raster-op').textContent = v + '%';
-    applyAll();
-  }
-  function onRasterSaturation(v) {
-    rasterSat = v / 100;
-    document.getElementById('val-raster-sat').textContent = v + '%';
-    applyAll();
-  }
-  function setRasterType(type) {
-    if (rasterType === type) return;
-    rasterType = type;
-    document.getElementById('raster-terrain').classList.toggle('active',   type === 'terrain');
-    document.getElementById('raster-satellite').classList.toggle('active', type === 'satellite');
-    if (styleReady) {
-      ensureRasterLayer();
-      applyAll();
-    }
-  }
+  function onSatToggle()       { satVisible = document.getElementById('tog-sat').checked; applyAll(); }
+  function onSatOpacity(v)     { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyAll(); }
+  function onSatSaturation(v)  { satSat     = v/100; document.getElementById('val-sat-sat').textContent = v+'%'; applyAll(); }
 
   // ── Camera ──
   function updateCamera() {
     const pitch   = parseFloat(document.getElementById('sl-pitch').value);
     const bearing = parseFloat(document.getElementById('sl-bearing').value);
-    document.getElementById('val-pitch').textContent   = pitch + '°';
+    document.getElementById('val-pitch').textContent   = pitch   + '°';
     document.getElementById('val-bearing').textContent = bearing + '°';
     map.easeTo({ pitch, bearing, duration: 300 });
-    drawCamDiagram(pitch, bearing);
   }
   function resetCamera() {
     document.getElementById('sl-pitch').value   = 0;
@@ -401,53 +342,9 @@
     document.getElementById('val-pitch').textContent   = '0°';
     document.getElementById('val-bearing').textContent = '0°';
     map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
-    drawCamDiagram(0, 0);
   }
 
-  // ── Camera diagram ──
-  function drawCamDiagram(pitch, bearing) {
-    const canvas = document.getElementById('cam-canvas');
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const pitchRatio = pitch / 85;
-    const topWidth   = W * 0.18 + W * 0.55 * (1 - pitchRatio);
-    const topY       = H * 0.15 + H * 0.55 * pitchRatio;
-    const cx         = W / 2;
-
-    ctx.beginPath();
-    ctx.moveTo(cx - topWidth/2, topY); ctx.lineTo(cx + topWidth/2, topY);
-    ctx.lineTo(cx + W*0.38, H-8);     ctx.lineTo(cx - W*0.38, H-8);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(74,180,240,0.07)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(74,180,240,0.22)'; ctx.lineWidth = 1; ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(cx - topWidth/2, topY); ctx.lineTo(cx + topWidth/2, topY);
-    ctx.strokeStyle = 'rgba(74,240,160,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(cx, H*0.12, 5, 0, Math.PI*2);
-    ctx.fillStyle = '#4ab4f0'; ctx.fill();
-
-    const arrowCX = W - 28, arrowCY = H/2;
-    const rad = (bearing - 90) * Math.PI / 180;
-    const ax = arrowCX + Math.cos(rad)*14, ay = arrowCY + Math.sin(rad)*14;
-    ctx.beginPath(); ctx.arc(arrowCX, arrowCY, 14, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(74,180,240,0.15)'; ctx.lineWidth=1; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(arrowCX, arrowCY); ctx.lineTo(ax, ay);
-    ctx.strokeStyle = '#4af0a0'; ctx.lineWidth=2; ctx.stroke();
-    ctx.beginPath(); ctx.arc(ax, ay, 3, 0, Math.PI*2);
-    ctx.fillStyle = '#4af0a0'; ctx.fill();
-
-    ctx.font = '9px DM Mono, monospace';
-    ctx.fillStyle = 'rgba(90,98,120,0.9)';
-    ctx.fillText('pitch ' + Math.round(pitch) + '°', 6, H-6);
-  }
-
-  drawCamDiagram(0, 0);
-
+  // ── Coords + zoom ──
   map.on('mousemove', e => {
     const {lng, lat} = e.lngLat;
     document.getElementById('coords').textContent =
