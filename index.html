@@ -502,31 +502,48 @@
     const ctx = canvas.getContext('2d');
 
     if (d.border === 2) {
-      // BEVEL
-      const bevelWidth = Math.max(1, radius * (d.borderSize / 100));
-      // Dark outer shadow ring
+      // DOME — radial gradient simulating a 3D sphere lit from top-left
+      // bevelSize% = how much of the radius is the "flat top" before dome curves off
+      // At 100%: full dome/sphere. At 0%: nearly flat disc with just a dark rim.
+      const t      = Math.max(0, Math.min(100, d.borderSize)) / 100;
+      const flatR  = radius * (1 - t);   // inner flat zone radius
+
+      // Highlight colour (brighter version of fill)
+      const hR = Math.min(255, fr + 120);
+      const hG = Math.min(255, fg + 120);
+      const hB = Math.min(255, fb + 120);
+
+      // Dark edge colour
+      const dR = Math.round(fr * 0.25);
+      const dG = Math.round(fg * 0.25);
+      const dB = Math.round(fb * 0.25);
+
+      // Clip to circle so gradient edges are clean
+      ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cx, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(0,0,0,${borderOpacity * 0.55})`;
+      ctx.clip();
+
+      // Radial gradient: highlight offset top-left → base colour → dark rim
+      const grad = ctx.createRadialGradient(
+        cx - radius * 0.18, cx - radius * 0.18, 0,
+        cx, cx, radius
+      );
+
+      const flatStop = Math.min(0.75, (flatR / radius) * 0.85 + 0.05);
+      const midStop  = Math.min(0.82, flatStop + 0.12);
+
+      grad.addColorStop(0,         `rgba(${hR},${hG},${hB},${fillOpacity})`);
+      grad.addColorStop(flatStop,  `rgba(${fr},${fg},${fb},${fillOpacity})`);
+      grad.addColorStop(midStop,   `rgba(${fr},${fg},${fb},${fillOpacity})`);
+      grad.addColorStop(0.88,      `rgba(${dR},${dG},${dB},${fillOpacity})`);
+      grad.addColorStop(1.0,       `rgba(${dR},${dG},${dB},0)`);
+
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
       ctx.fill();
-      // Main fill
-      ctx.beginPath();
-      ctx.arc(cx, cx, radius - bevelWidth * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${fr},${fg},${fb},${fillOpacity})`;
-      ctx.fill();
-      // Highlight arc top-left
-      const hlR = radius - bevelWidth * 0.6;
-      ctx.beginPath();
-      ctx.arc(cx, cx, hlR, Math.PI * 1.1, Math.PI * 1.9);
-      ctx.strokeStyle = `rgba(255,255,255,${borderOpacity * 0.7})`;
-      ctx.lineWidth   = bevelWidth * 0.7;
-      ctx.stroke();
-      // Shadow arc bottom-right
-      ctx.beginPath();
-      ctx.arc(cx, cx, hlR, Math.PI * 0.05, Math.PI * 0.95);
-      ctx.strokeStyle = `rgba(0,0,0,${borderOpacity * 0.45})`;
-      ctx.lineWidth   = bevelWidth * 0.5;
-      ctx.stroke();
+      ctx.restore();
     } else {
       // PLAIN FILL
       ctx.beginPath();
