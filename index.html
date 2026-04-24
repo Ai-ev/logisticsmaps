@@ -7,6 +7,8 @@
 
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <!-- SheetJS for Excel parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
 
   <style>
@@ -19,6 +21,7 @@
       --accent:  #4af0a0;
       --accent2: #4ab4f0;
       --amber:   #f0c44a;
+      --purple:  #b07af0;
       --text:    #e8ecf4;
       --muted:   #5a6278;
       --track:   #1e2230;
@@ -67,7 +70,7 @@
     .layer-row:last-child { margin-bottom: 0; }
     .layer-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 
-    /* pill */
+    /* pill toggle */
     .pill { position: relative; width: 32px; height: 18px; flex-shrink: 0; cursor: pointer; }
     .pill input { opacity: 0; width: 0; height: 0; position: absolute; }
     .pill-track { position: absolute; inset: 0; border-radius: 9px; background: var(--border); transition: background 0.2s; }
@@ -91,9 +94,11 @@
     /* slider rows */
     .sl-row { display: flex; align-items: center; gap: 8px; padding-left: 40px; margin-bottom: 7px; }
     .sl-row:last-child { margin-bottom: 0; }
+    .sl-row.no-indent { padding-left: 0; }
     .sl-label { font-size: 9px; color: var(--muted); min-width: 52px; }
     .sl-val   { font-size: 9px; min-width: 30px; text-align: right; color: var(--accent); }
-    .sl-val.amber { color: var(--amber); }
+    .sl-val.amber  { color: var(--amber); }
+    .sl-val.purple { color: var(--purple); }
 
     input[type=range] {
       -webkit-appearance: none; flex: 1; height: 3px;
@@ -106,13 +111,13 @@
     input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
     input[type=range].blue::-webkit-slider-thumb   { background: var(--accent2); box-shadow: 0 0 5px rgba(74,180,240,0.4); }
     input[type=range].amber::-webkit-slider-thumb  { background: var(--amber);   box-shadow: 0 0 5px rgba(240,196,74,0.4); }
+    input[type=range].purple::-webkit-slider-thumb { background: var(--purple);  box-shadow: 0 0 5px rgba(176,122,240,0.4); }
 
-    /* camera section reuses sl-row style */
+    /* camera */
     .cam-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .cam-row:last-child { margin-bottom: 0; }
     .cam-label { font-size: 10px; color: var(--muted); min-width: 64px; }
     .cam-val   { font-size: 10px; color: var(--accent2); min-width: 32px; text-align: right; }
-
     .reset-btn {
       flex: 1; padding: 6px; background: transparent; border: 1px solid var(--border);
       color: var(--muted); border-radius: 6px; font-family: 'DM Mono', monospace;
@@ -120,7 +125,45 @@
     }
     .reset-btn:hover { border-color: var(--accent2); color: var(--text); }
 
-    /* ── FOOT BADGES ── */
+    /* ── FILE UPLOAD ZONE ── */
+    #upload-zone {
+      border: 1px dashed var(--border); border-radius: 6px;
+      padding: 12px; text-align: center; cursor: pointer;
+      transition: all 0.2s; position: relative;
+    }
+    #upload-zone:hover, #upload-zone.drag-over {
+      border-color: var(--accent); background: rgba(74,240,160,0.04);
+    }
+    #upload-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 18px; margin-bottom: 4px; }
+    .upload-text { font-size: 10px; color: var(--muted); letter-spacing: 0.5px; }
+    .upload-text strong { color: var(--accent); font-weight: 400; }
+
+    /* file loaded state */
+    #file-status {
+      display: none; align-items: center; gap: 8px;
+      background: rgba(74,240,160,0.06); border: 1px solid rgba(74,240,160,0.2);
+      border-radius: 6px; padding: 8px 10px;
+    }
+    #file-status.visible { display: flex; }
+    .file-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .file-name { font-size: 10px; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-clear {
+      font-size: 14px; color: var(--muted); cursor: pointer; background: none; border: none;
+      line-height: 1; padding: 0 2px; transition: color 0.15s;
+    }
+    .file-clear:hover { color: var(--text); }
+
+    /* layer count badge */
+    .count-badge {
+      font-size: 9px; background: rgba(176,122,240,0.15); color: var(--purple);
+      border: 1px solid rgba(176,122,240,0.3); border-radius: 10px;
+      padding: 1px 7px; letter-spacing: 0.5px;
+    }
+
+    /* ── COORDS + ZOOM ── */
     #coords {
       position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
       z-index: 10; background: rgba(10,12,16,0.85);
@@ -155,7 +198,22 @@
     <div class="dot"></div>
   </div>
 
-  <!-- BACKGROUND LAYERS -->
+  <!-- ── DATA ── -->
+  <div class="section">
+    <div class="section-label">Data</div>
+    <div id="upload-zone">
+      <input type="file" id="file-input" accept=".xlsx,.xls" onchange="onFileSelected(event)" />
+      <div class="upload-icon">📂</div>
+      <div class="upload-text">Drop Excel file or <strong>browse</strong></div>
+    </div>
+    <div id="file-status" style="margin-top:8px;">
+      <div class="file-dot"></div>
+      <span class="file-name" id="file-name-label">—</span>
+      <button class="file-clear" onclick="clearFile()" title="Clear">✕</button>
+    </div>
+  </div>
+
+  <!-- ── BACKGROUND LAYERS ── -->
   <div class="section">
     <div class="section-label">Background Layers</div>
 
@@ -199,10 +257,31 @@
         <span class="sl-val amber" id="val-sat-sat">100%</span>
       </div>
     </div>
-
   </div>
 
-  <!-- CAMERA -->
+  <!-- ── CIRCLES LAYER ── -->
+  <div class="section">
+    <div class="layer-top" style="margin-bottom:12px;">
+      <label class="pill">
+        <input type="checkbox" id="tog-circles" checked onchange="onCirclesToggle()" />
+        <div class="pill-track"></div><div class="pill-thumb"></div>
+      </label>
+      <span class="layer-name" style="font-family:'Syne',sans-serif; font-size:10px; letter-spacing:1px; text-transform:uppercase;">Circles</span>
+      <span class="count-badge" id="circles-count">0 items</span>
+    </div>
+    <div class="sl-row no-indent">
+      <span class="sl-label">Opacity</span>
+      <input type="range" class="purple" id="sl-circ-op" min="0" max="100" value="100" oninput="onCirclesOpacity(this.value)" />
+      <span class="sl-val purple" id="val-circ-op">100%</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Saturation</span>
+      <input type="range" class="purple" id="sl-circ-sat" min="0" max="100" value="100" oninput="onCirclesSaturation(this.value)" />
+      <span class="sl-val purple" id="val-circ-sat">100%</span>
+    </div>
+  </div>
+
+  <!-- ── CAMERA ── -->
   <div class="section">
     <div class="section-label">Camera / 3D View</div>
     <div class="cam-row">
@@ -229,6 +308,9 @@
 <script>
   mapboxgl.accessToken = 'pk.eyJ1IjoibWF0dGlhc2JtIiwiYSI6ImNtb2NqcTdoYzAxa28ycHBlNDJjMnU5N2kifQ.qkqA4r5gtFbtSX3NlrKkPA';
 
+  // ═══════════════════════════════════════════
+  //  STATE
+  // ═══════════════════════════════════════════
   const VECTOR_STYLES = {
     dark:  'mapbox://styles/mapbox/dark-v11',
     light: 'mapbox://styles/mapbox/light-v11'
@@ -239,9 +321,20 @@
   let vectorOpacity = 1.0;
   let satVisible    = false;
   let satOpacity    = 0.7;
-  let satSat        = 1.0;   // 1 = full colour, 0 = greyscale
+  let satSat        = 1.0;
   let styleReady    = false;
 
+  // Circles master controls
+  let circlesVisible = true;
+  let circlesMasterOpacity = 1.0;
+  let circlesMasterSat     = 1.0;
+
+  // Raw circle data from Excel
+  let circleData = [];
+
+  // ═══════════════════════════════════════════
+  //  MAP INIT
+  // ═══════════════════════════════════════════
   const map = new mapboxgl.Map({
     container: 'map',
     style: VECTOR_STYLES.dark,
@@ -257,44 +350,32 @@
   map.on('style.load', () => {
     styleReady = true;
     ensureSatLayer();
-    applyAll();
+    applyMapLayers();
+    renderCircles();
   });
 
-  // ── Satellite layer — added LAST so it sits on top of all vector layers ──
+  // ═══════════════════════════════════════════
+  //  BACKGROUND LAYERS
+  // ═══════════════════════════════════════════
   function ensureSatLayer() {
     if (!map.getSource('sat-src')) {
-      map.addSource('sat-src', {
-        type: 'raster',
-        url: 'mapbox://mapbox.satellite',
-        tileSize: 256
-      });
+      map.addSource('sat-src', { type: 'raster', url: 'mapbox://mapbox.satellite', tileSize: 256 });
     }
     if (!map.getLayer('sat-layer')) {
-      // No insertion point = appended on top of everything
-      map.addLayer({
-        id: 'sat-layer',
-        type: 'raster',
-        source: 'sat-src',
-        paint: { 'raster-opacity': 0, 'raster-saturation': 0 }
-      });
+      map.addLayer({ id: 'sat-layer', type: 'raster', source: 'sat-src',
+        paint: { 'raster-opacity': 0, 'raster-saturation': 0 } });
     }
   }
 
-  function applyAll() {
+  function applyMapLayers() {
     if (!styleReady) return;
-
-    // Satellite
     try {
-      map.setPaintProperty('sat-layer', 'raster-opacity',
-        satVisible ? satOpacity : 0);
-      // raster-saturation: -1 = greyscale, 0 = unchanged
+      map.setPaintProperty('sat-layer', 'raster-opacity', satVisible ? satOpacity : 0);
       map.setPaintProperty('sat-layer', 'raster-saturation', satSat - 1.0);
     } catch(e) {}
-
-    // Vector — apply opacity to every non-satellite layer
     const t = vectorVisible ? vectorOpacity : 0;
     map.getStyle().layers.forEach(layer => {
-      if (layer.id === 'sat-layer') return;
+      if (layer.id === 'sat-layer' || layer.id === 'circles-layer') return;
       try {
         const lt = layer.type;
         if (lt === 'background') map.setPaintProperty(layer.id, 'background-opacity', t);
@@ -310,10 +391,8 @@
     });
   }
 
-  // ── Handlers ──
-  function onVectorToggle()   { vectorVisible = document.getElementById('tog-vector').checked; applyAll(); }
-  function onVectorOpacity(v) { vectorOpacity = v/100; document.getElementById('val-vec-op').textContent = v+'%'; applyAll(); }
-
+  function onVectorToggle()   { vectorVisible = document.getElementById('tog-vector').checked; applyMapLayers(); }
+  function onVectorOpacity(v) { vectorOpacity = v/100; document.getElementById('val-vec-op').textContent = v+'%'; applyMapLayers(); }
   function setVectorTheme(theme) {
     if (vectorTheme === theme) return;
     vectorTheme = theme;
@@ -321,14 +400,227 @@
     document.getElementById('theme-light').classList.toggle('active', theme === 'light');
     styleReady = false;
     map.setStyle(VECTOR_STYLES[theme]);
-    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyAll(); });
+    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); });
+  }
+  function onSatToggle()      { satVisible = document.getElementById('tog-sat').checked; applyMapLayers(); }
+  function onSatOpacity(v)    { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyMapLayers(); }
+  function onSatSaturation(v) { satSat     = v/100; document.getElementById('val-sat-sat').textContent = v+'%'; applyMapLayers(); }
+
+  // ═══════════════════════════════════════════
+  //  FILE UPLOAD
+  // ═══════════════════════════════════════════
+  const uploadZone = document.getElementById('upload-zone');
+  uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault(); uploadZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  });
+
+  function onFileSelected(e) {
+    const file = e.target.files[0];
+    if (file) processFile(file);
   }
 
-  function onSatToggle()       { satVisible = document.getElementById('tog-sat').checked; applyAll(); }
-  function onSatOpacity(v)     { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyAll(); }
-  function onSatSaturation(v)  { satSat     = v/100; document.getElementById('val-sat-sat').textContent = v+'%'; applyAll(); }
+  function processFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
 
-  // ── Camera ──
+        // Parse Circles sheet
+        circleData = [];
+        const circleSheet = wb.Sheets['Circles'];
+        if (circleSheet) {
+          const rows = XLSX.utils.sheet_to_json(circleSheet);
+          circleData = rows.map(r => ({
+            name:         r['Name']               || '',
+            type:         parseInt(r['Type (0 = Ellipse, 1 = Rectangle)']) || 0,
+            lng:          parseFloat(r['Longitude'])      || 0,
+            lat:          parseFloat(r['Latitude'])       || 0,
+            opacity:      parseInt(r['Opacity (0-255)'])  ?? 170,
+            r:            parseInt(r['Red Color (0-255)'])   || 0,
+            g:            parseInt(r['Green Color (0-255)']) || 0,
+            b:            parseInt(r['Blue Color (0-255)'])  || 0,
+            height:       parseInt(r['Height pixels'])    || 20,
+            width:        parseInt(r['Width pixels'])     || 20,
+            border:       parseInt(r['Border (On = 1, Off = 0)']) || 0,
+            borderSize:   parseInt(r['Border Size'])      || 1,
+            antialias:    parseInt(r['Antialiasing (On = 1, Off = 0)']) || 0,
+          })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
+        }
+
+        // Update UI
+        document.getElementById('file-name-label').textContent = file.name;
+        document.getElementById('file-status').classList.add('visible');
+        document.getElementById('circles-count').textContent = circleData.length + ' items';
+
+        renderCircles();
+      } catch(err) {
+        alert('Could not read Excel file: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function clearFile() {
+    circleData = [];
+    document.getElementById('file-input').value = '';
+    document.getElementById('file-status').classList.remove('visible');
+    document.getElementById('circles-count').textContent = '0 items';
+    renderCircles();
+  }
+
+  // ═══════════════════════════════════════════
+  //  CIRCLES RENDERING
+  // ═══════════════════════════════════════════
+
+  // Blend a colour toward greyscale by saturation factor (0=grey, 1=full colour)
+  function desaturateRGB(r, g, b, sat) {
+    const grey = 0.299 * r + 0.587 * g + 0.114 * b;
+    return [
+      Math.round(grey + (r - grey) * sat),
+      Math.round(grey + (g - grey) * sat),
+      Math.round(grey + (b - grey) * sat)
+    ];
+  }
+
+  function renderCircles() {
+    if (!styleReady) return;
+
+    // Remove old layer/source
+    if (map.getLayer('circles-layer')) map.removeLayer('circles-layer');
+    if (map.getSource('circles-src'))  map.removeSource('circles-src');
+
+    if (!circlesVisible || circleData.length === 0) return;
+
+    // Build GeoJSON — store computed radius and colour as properties
+    const features = circleData.map(d => {
+      // Radius: average of height/width, scaled from pixels to map metres approx
+      // We store pixel size and compute radius in a zoom-independent way using
+      // Mapbox circle-radius in pixels directly
+      const radiusPx = (d.height + d.width) / 4; // average half-size
+
+      // Apply master saturation to the Excel colour
+      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
+
+      // Apply master opacity × Excel opacity (Excel 0-255 → 0-1)
+      const finalOpacity = (d.opacity / 255) * circlesMasterOpacity;
+
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+        properties: {
+          name:        d.name,
+          radius:      radiusPx,
+          color:       `rgb(${fr},${fg},${fb})`,
+          opacity:     finalOpacity,
+          border:      d.border,
+          borderSize:  d.borderSize,
+          // Store raw values for re-computation on master slider change
+          rawR: d.r, rawG: d.g, rawB: d.b,
+          rawOpacity: d.opacity / 255
+        }
+      };
+    });
+
+    map.addSource('circles-src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features }
+    });
+
+    map.addLayer({
+      id: 'circles-layer',
+      type: 'circle',
+      source: 'circles-src',
+      paint: {
+        'circle-radius':       ['get', 'radius'],
+        'circle-color':        ['get', 'color'],
+        'circle-opacity':      ['get', 'opacity'],
+        'circle-stroke-width': ['case', ['==', ['get', 'border'], 1], ['get', 'borderSize'], 0],
+        'circle-stroke-color': 'rgba(0,0,0,0.5)',
+        'circle-stroke-opacity': ['get', 'opacity']
+      }
+    });
+
+    // Tooltip on hover
+    map.on('mouseenter', 'circles-layer', e => {
+      map.getCanvas().style.cursor = 'pointer';
+      const name = e.features[0].properties.name;
+      if (name) {
+        tooltip.style.display = 'block';
+        tooltip.textContent = name;
+      }
+    });
+    map.on('mousemove', 'circles-layer', e => {
+      tooltip.style.left = (e.originalEvent.clientX + 12) + 'px';
+      tooltip.style.top  = (e.originalEvent.clientY - 28) + 'px';
+      tooltip.textContent = e.features[0].properties.name;
+    });
+    map.on('mouseleave', 'circles-layer', () => {
+      map.getCanvas().style.cursor = '';
+      tooltip.style.display = 'none';
+    });
+  }
+
+  // Re-render circles when master controls change (updates colour/opacity in place)
+  function updateCircleAppearance() {
+    if (!styleReady || !map.getSource('circles-src')) return;
+
+    const features = circleData.map(d => {
+      const radiusPx = (d.height + d.width) / 4;
+      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
+      const finalOpacity = (d.opacity / 255) * circlesMasterOpacity;
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+        properties: {
+          name: d.name, radius: radiusPx,
+          color: `rgb(${fr},${fg},${fb})`,
+          opacity: finalOpacity,
+          border: d.border, borderSize: d.borderSize
+        }
+      };
+    });
+
+    map.getSource('circles-src').setData({
+      type: 'FeatureCollection', features
+    });
+  }
+
+  // ── Circles master controls ──
+  function onCirclesToggle() {
+    circlesVisible = document.getElementById('tog-circles').checked;
+    renderCircles();
+  }
+  function onCirclesOpacity(v) {
+    circlesMasterOpacity = v / 100;
+    document.getElementById('val-circ-op').textContent = v + '%';
+    updateCircleAppearance();
+  }
+  function onCirclesSaturation(v) {
+    circlesMasterSat = v / 100;
+    document.getElementById('val-circ-sat').textContent = v + '%';
+    updateCircleAppearance();
+  }
+
+  // ═══════════════════════════════════════════
+  //  TOOLTIP
+  // ═══════════════════════════════════════════
+  const tooltip = document.createElement('div');
+  Object.assign(tooltip.style, {
+    position: 'fixed', display: 'none', pointerEvents: 'none',
+    background: 'rgba(10,12,16,0.9)', border: '1px solid #1e2230',
+    color: '#e8ecf4', fontFamily: "'DM Mono', monospace",
+    fontSize: '11px', padding: '4px 10px', borderRadius: '5px',
+    letterSpacing: '0.3px', zIndex: '20', whiteSpace: 'nowrap'
+  });
+  document.body.appendChild(tooltip);
+
+  // ═══════════════════════════════════════════
+  //  CAMERA
+  // ═══════════════════════════════════════════
   function updateCamera() {
     const pitch   = parseFloat(document.getElementById('sl-pitch').value);
     const bearing = parseFloat(document.getElementById('sl-bearing').value);
@@ -344,7 +636,9 @@
     map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
   }
 
-  // ── Coords + zoom ──
+  // ═══════════════════════════════════════════
+  //  COORDS + ZOOM
+  // ═══════════════════════════════════════════
   map.on('mousemove', e => {
     const {lng, lat} = e.lngLat;
     document.getElementById('coords').textContent =
