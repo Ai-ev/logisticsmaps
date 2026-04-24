@@ -445,8 +445,8 @@
             b:            parseInt(r['Blue Color (0-255)'])  || 0,
             height:       parseInt(r['Height pixels'])    || 20,
             width:        parseInt(r['Width pixels'])     || 20,
-            border:       parseInt(r['Border (On = 1, Off = 0, Bevel = 2)']) || 0,
-            borderSize:   parseInt(r['Border Size pixels (for bevel=%)']) || 1,
+            border:       parseInt(r['Border (On = 1, Off = 0, Orb = 2)']) || 0,
+            borderSize:   parseInt(r['Border Size pixels']) || 1,
             antialias:    parseInt(r['Antialiasing (On = 1, Off = 0)']) || 0,
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
