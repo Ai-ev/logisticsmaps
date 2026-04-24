@@ -492,7 +492,9 @@
     const fillOpacity   = (d.opacity / 255) * masterOpacity;
     const borderOpacity = masterOpacity;
     const radius = (d.height + d.width) / 4;
-    const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1 : 2;
+    const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1
+                 : d.border === 2 ? Math.ceil(radius * 0.35) + 4
+                 : 2;
     const size   = Math.ceil((radius + pad) * 2);
     const cx     = size / 2;
 
@@ -502,48 +504,68 @@
     const ctx = canvas.getContext('2d');
 
     if (d.border === 2) {
-      // DOME — radial gradient simulating a 3D sphere lit from top-left
-      // bevelSize% = how much of the radius is the "flat top" before dome curves off
-      // At 100%: full dome/sphere. At 0%: nearly flat disc with just a dark rim.
-      const t      = Math.max(0, Math.min(100, d.borderSize)) / 100;
-      const flatR  = radius * (1 - t);   // inner flat zone radius
+      // GLOSSY ORB — fixed recipe: drop shadow + shaded sphere + specular highlight + rim
+      // borderSize is ignored for bevel; the look is intentionally consistent.
 
-      // Highlight colour (brighter version of fill)
-      const hR = Math.min(255, fr + 120);
-      const hG = Math.min(255, fg + 120);
-      const hB = Math.min(255, fb + 120);
+      // ── 1. DROP SHADOW ── soft blurred shadow below-right of the orb
+      ctx.save();
+      ctx.shadowColor   = `rgba(0,0,0,${fillOpacity * 0.55})`;
+      ctx.shadowBlur    = radius * 0.45;
+      ctx.shadowOffsetX = radius * 0.08;
+      ctx.shadowOffsetY = radius * 0.14;
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius * 0.98, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,0,0,${fillOpacity * 0.7})`;
+      ctx.fill();
+      ctx.restore();
 
-      // Dark edge colour
+      // ── 2. SPHERE BODY ── radial gradient: lit top-left → base → dark bottom-right
+      // Highlight tone (brighter version of fill)
+      const hR = Math.min(255, fr + 90);
+      const hG = Math.min(255, fg + 90);
+      const hB = Math.min(255, fb + 90);
+      // Dark tone (deep shadow side)
       const dR = Math.round(fr * 0.25);
       const dG = Math.round(fg * 0.25);
       const dB = Math.round(fb * 0.25);
 
-      // Clip to circle so gradient edges are clean
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cx, radius, 0, Math.PI * 2);
       ctx.clip();
 
-      // Radial gradient: highlight offset top-left → base colour → dark rim
-      const grad = ctx.createRadialGradient(
-        cx - radius * 0.18, cx - radius * 0.18, 0,
-        cx, cx, radius
+      const bodyGrad = ctx.createRadialGradient(
+        cx - radius * 0.35, cx - radius * 0.35, radius * 0.05,
+        cx + radius * 0.15, cx + radius * 0.15, radius * 1.15
       );
+      bodyGrad.addColorStop(0.00, `rgba(${hR},${hG},${hB},${fillOpacity})`);
+      bodyGrad.addColorStop(0.45, `rgba(${fr},${fg},${fb},${fillOpacity})`);
+      bodyGrad.addColorStop(1.00, `rgba(${dR},${dG},${dB},${fillOpacity})`);
+      ctx.fillStyle = bodyGrad;
+      ctx.fillRect(cx - radius, cx - radius, radius * 2, radius * 2);
 
-      const flatStop = Math.min(0.75, (flatR / radius) * 0.85 + 0.05);
-      const midStop  = Math.min(0.82, flatStop + 0.12);
-
-      grad.addColorStop(0,         `rgba(${hR},${hG},${hB},${fillOpacity})`);
-      grad.addColorStop(flatStop,  `rgba(${fr},${fg},${fb},${fillOpacity})`);
-      grad.addColorStop(midStop,   `rgba(${fr},${fg},${fb},${fillOpacity})`);
-      grad.addColorStop(0.88,      `rgba(${dR},${dG},${dB},${fillOpacity})`);
-      grad.addColorStop(1.0,       `rgba(${dR},${dG},${dB},0)`);
-
+      // ── 3. SPECULAR HIGHLIGHT ── bright elongated oval, top-left
+      const hlCX = cx - radius * 0.32;
+      const hlCY = cx - radius * 0.42;
+      const hlRX = radius * 0.40;
+      const hlRY = radius * 0.22;
+      const hlGrad = ctx.createRadialGradient(hlCX, hlCY, 0, hlCX, hlCY, hlRX);
+      hlGrad.addColorStop(0.0, `rgba(255,255,255,${fillOpacity * 0.95})`);
+      hlGrad.addColorStop(0.5, `rgba(255,255,255,${fillOpacity * 0.35})`);
+      hlGrad.addColorStop(1.0, `rgba(255,255,255,0)`);
+      ctx.fillStyle = hlGrad;
       ctx.beginPath();
-      ctx.arc(cx, cx, radius, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
+      ctx.ellipse(hlCX, hlCY, hlRX, hlRY, -Math.PI / 5, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.restore();
+
+      // ── 4. RIM OUTLINE ── thin dark edge all the way around
+      ctx.beginPath();
+      ctx.arc(cx, cx, radius - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0,0,0,${borderOpacity * 0.55})`;
+      ctx.lineWidth   = 1;
+      ctx.stroke();
     } else {
       // PLAIN FILL
       ctx.beginPath();
