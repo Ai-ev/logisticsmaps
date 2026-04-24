@@ -958,6 +958,7 @@
     if (d === 0) return [[lng1, lat1], [lng2, lat2]];
 
     const coords = [];
+    let prevLng = null;
     for (let i = 0; i <= steps; i++) {
       const f = i / steps;
       const A = Math.sin((1 - f) * d) / Math.sin(d);
@@ -966,8 +967,17 @@
       const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
       const z = A * Math.sin(φ1)               + B * Math.sin(φ2);
       const φ = Math.atan2(z, Math.sqrt(x*x + y*y));
-      const λ = Math.atan2(y, x);
-      coords.push([toDeg(λ), toDeg(φ)]);
+      let   λ = toDeg(Math.atan2(y, x));
+
+      // Antimeridian handling — if the step crossed the dateline, keep the
+      // longitude continuous by adjusting ±360 so Mapbox renders the short path.
+      if (prevLng !== null) {
+        while (λ - prevLng >  180) λ -= 360;
+        while (λ - prevLng < -180) λ += 360;
+      }
+      prevLng = λ;
+
+      coords.push([λ, toDeg(φ)]);
     }
     return coords;
   }
@@ -990,12 +1000,26 @@
     const ctrlLng = midLng + px * bulge * sign;
     const ctrlLat = midLat + py * bulge * sign;
 
+    // For Bezier, if the two endpoints are on opposite sides of the dateline and
+    // it's shorter to go around the back, shift lng2 by ±360 before interpolating.
+    let lng2adj = lng2;
+    if      (lng2 - lng1 >  180) lng2adj -= 360;
+    else if (lng2 - lng1 < -180) lng2adj += 360;
+    const midLngAdj = (lng1 + lng2adj) / 2;
+    const dLngAdj   = lng2adj - lng1;
+    const distAdj   = Math.sqrt(dLngAdj*dLngAdj + dLat*dLat);
+    const pxAdj = -dLat / (distAdj || 1);
+    const pyAdj =  dLngAdj / (distAdj || 1);
+    const signAdj = pyAdj >= 0 ? 1 : -1;
+    const ctrlLngAdj = midLngAdj + pxAdj * distAdj * 0.25 * signAdj;
+    const ctrlLatAdj = midLat    + pyAdj * distAdj * 0.25 * signAdj;
+
     // Quadratic Bezier curve
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const u = 1 - t;
-      const x = u*u * lng1 + 2*u*t * ctrlLng + t*t * lng2;
-      const y = u*u * lat1 + 2*u*t * ctrlLat + t*t * lat2;
+      const x = u*u * lng1 + 2*u*t * ctrlLngAdj + t*t * lng2adj;
+      const y = u*u * lat1 + 2*u*t * ctrlLatAdj + t*t * lat2;
       coords.push([x, y]);
     }
     return coords;
