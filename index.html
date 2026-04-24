@@ -270,6 +270,11 @@
       <span class="count-badge" id="circles-count">0 items</span>
     </div>
     <div class="sl-row no-indent">
+      <span class="sl-label">Size</span>
+      <input type="range" class="purple" id="sl-circ-size" min="3" max="300" value="50" oninput="onCirclesSize(this.value)" />
+      <span class="sl-val purple" id="val-circ-size">50px</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
       <input type="range" class="purple" id="sl-circ-op" min="0" max="100" value="100" oninput="onCirclesOpacity(this.value)" />
       <span class="sl-val purple" id="val-circ-op">100%</span>
@@ -292,9 +297,14 @@
       <span class="count-badge" id="bars-count">0 items</span>
     </div>
     <div class="sl-row no-indent">
+      <span class="sl-label">Diameter</span>
+      <input type="range" class="purple" id="sl-bars-dia" min="5" max="200" value="50" oninput="onBarsDiameter(this.value)" />
+      <span class="sl-val purple" id="val-bars-dia">50km</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Max Height</span>
-      <input type="range" class="purple" id="sl-bars-height" min="1000" max="200000" value="50000" step="1000" oninput="onBarsHeight(this.value)" />
-      <span class="sl-val purple" id="val-bars-height">50km</span>
+      <input type="range" class="purple" id="sl-bars-height" min="1000" max="500000" value="200000" step="1000" oninput="onBarsHeight(this.value)" />
+      <span class="sl-val purple" id="val-bars-height">200km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -355,6 +365,8 @@
   let circlesVisible = true;
   let circlesMasterOpacity = 1.0;
   let circlesMasterSat     = 1.0;
+  let circlesMasterSize    = 50;   // target pixel size for the largest circle
+  let circlesMaxRawSize    = 1;    // largest raw (h+w)/2 value in the loaded data — computed on load
 
   // Raw circle data from Excel
   let circleData = [];
@@ -363,7 +375,8 @@
   let barsVisible      = true;
   let barsMasterOpacity = 1.0;
   let barsMasterSat     = 1.0;
-  let barsMaxHeight     = 50000;   // metres — what Relative Height 100 maps to
+  let barsMaxHeight     = 200000;   // metres — what Relative Height 100 maps to
+  let barsDiameter      = 50;       // km — bar diameter
 
   // Raw bar data from Excel
   let barData = [];
@@ -488,6 +501,11 @@
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
 
+        // Compute the largest raw size across all circles — used as the 100% reference
+        circlesMaxRawSize = circleData.length
+          ? Math.max(...circleData.map(d => (d.height + d.width) / 2), 1)
+          : 1;
+
         // Update UI
         document.getElementById('file-name-label').textContent = file.name;
         document.getElementById('file-status').classList.add('visible');
@@ -555,7 +573,11 @@
     const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, masterSat);
     const fillOpacity   = (d.opacity / 255) * masterOpacity;
     const borderOpacity = masterOpacity;
-    const radius = (d.height + d.width) / 4;
+    // Relative size: scale so that the largest item = master size,
+    // minimum size = 3px regardless of scaling
+    const rawSize    = (d.height + d.width) / 2;
+    const scaledDiam = (rawSize / circlesMaxRawSize) * circlesMasterSize;
+    const radius     = Math.max(1.5, scaledDiam / 2);   // min 3px diameter → 1.5px radius
     const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1
                  : d.border === 2 ? Math.ceil(radius * 0.35) + 4
                  : 2;
@@ -701,6 +723,11 @@
     circlesVisible = document.getElementById('tog-circles').checked;
     renderCircles();
   }
+  function onCirclesSize(v) {
+    circlesMasterSize = parseInt(v);
+    document.getElementById('val-circ-size').textContent = v + 'px';
+    renderCircles();   // full re-render — canvas dimensions change
+  }
   function onCirclesOpacity(v) {
     circlesMasterOpacity = v / 100;
     document.getElementById('val-circ-op').textContent = v + '%';
@@ -753,8 +780,8 @@
 
     if (!barsVisible || barData.length === 0) return;
 
-    // Base width: ~0.08° at full zoom — feels natural at European scale
-    const baseRadiusDeg = 0.08;
+    // Bar diameter: user-controlled in km. Convert km to degrees (approx 111km per degree)
+    const baseRadiusDeg = (barsDiameter / 2) / 111;
 
     const features = barData.map(d => {
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, barsMasterSat);
@@ -834,6 +861,11 @@
     barsMaxHeight = parseInt(v);
     const km = (barsMaxHeight / 1000).toFixed(0);
     document.getElementById('val-bars-height').textContent = km + 'km';
+    updateBarsAppearance();
+  }
+  function onBarsDiameter(v) {
+    barsDiameter = parseInt(v);
+    document.getElementById('val-bars-dia').textContent = v + 'km';
     updateBarsAppearance();
   }
   function onBarsOpacity(v) {
