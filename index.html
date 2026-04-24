@@ -485,25 +485,23 @@
         if (circleSheet) {
           const rows = XLSX.utils.sheet_to_json(circleSheet);
           circleData = rows.map(r => ({
-            name:         r['Name']               || '',
-            type:         parseInt(r['Type (0 = Ellipse, 1 = Rectangle)']) || 0,
-            lng:          parseFloat(r['Longitude'])      || 0,
-            lat:          parseFloat(r['Latitude'])       || 0,
-            opacity:      parseInt(r['Opacity (0-255)'])  ?? 170,
-            r:            parseInt(r['Red Color (0-255)'])   || 0,
-            g:            parseInt(r['Green Color (0-255)']) || 0,
-            b:            parseInt(r['Blue Color (0-255)'])  || 0,
-            height:       parseInt(r['Height pixels'])    || 20,
-            width:        parseInt(r['Width pixels'])     || 20,
-            border:       parseInt(r['Border (On = 1, Off = 0, Orb = 2)']) || 0,
-            borderSize:   parseInt(r['Border Size pixels']) || 1,
-            antialias:    parseInt(r['Antialiasing (On = 1, Off = 0)']) || 0,
+            name:         r['Name']                                         || '',
+            lng:          parseFloat(r['Longitude'])                        || 0,
+            lat:          parseFloat(r['Latitude'])                         || 0,
+            opacity:      parseInt(r['Opacity (0-255)'])                    ?? 170,
+            r:            parseInt(r['Red Color (0-255)'])                  || 0,
+            g:            parseInt(r['Green Color (0-255)'])                || 0,
+            b:            parseInt(r['Blue Color (0-255)'])                 || 0,
+            relSize:      parseFloat(r['Relative size'])                    || 10,
+            border:       parseInt(r['Border (On = 1, Off = 0, Orb = 2)'])  || 0,
+            borderSize:   parseInt(r['Border Size pixels'])                 || 1,
+            antialias:    parseInt(r['Antialiasing (On = 1, Off = 0)'])     || 0,
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
 
         // Compute the largest raw size across all circles — used as the 100% reference
         circlesMaxRawSize = circleData.length
-          ? Math.max(...circleData.map(d => (d.height + d.width) / 2), 1)
+          ? Math.max(...circleData.map(d => d.relSize), 1)
           : 1;
 
         // Update UI
@@ -519,17 +517,16 @@
         if (barSheet) {
           const rows = XLSX.utils.sheet_to_json(barSheet);
           barData = rows.map(r => ({
-            name:       r['Name']                          || '',
+            name:       r['Name']                                   || '',
             type:       parseInt(r['Type (0 = round, 1 = square)']) || 0,
-            lng:        parseFloat(r['Longitude'])         || 0,
-            lat:        parseFloat(r['Latitude'])          || 0,
-            opacity:    parseInt(r['Opacity (0-255)'])     ?? 170,
-            r:          parseInt(r['Red Color (0-255)'])   || 0,
-            g:          parseInt(r['Green Color (0-255)']) || 0,
-            b:          parseInt(r['Blue Color (0-255)'])  || 0,
-            relHeight:  parseFloat(r['Relative Height'])   || 0,
-            border:     parseInt(r['Border (On = 1, Off = 0)']) || 0,
-            borderSize: parseInt(r['Border Size'])         || 1,
+            lng:        parseFloat(r['Longitude'])                  || 0,
+            lat:        parseFloat(r['Latitude'])                   || 0,
+            r:          parseInt(r['Red Color (0-255)'])            || 0,
+            g:          parseInt(r['Green Color (0-255)'])          || 0,
+            b:          parseInt(r['Blue Color (0-255)'])           || 0,
+            relHeight:  parseFloat(r['Relative Height'])            || 0,
+            border:     parseInt(r['Border (On = 1, Off = 0)'])     || 0,
+            borderSize: parseInt(r['Border Size'])                  || 1,
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
 
@@ -575,8 +572,7 @@
     const borderOpacity = masterOpacity;
     // Relative size: scale so that the largest item = master size,
     // minimum size = 3px regardless of scaling
-    const rawSize    = (d.height + d.width) / 2;
-    const scaledDiam = (rawSize / circlesMaxRawSize) * circlesMasterSize;
+    const scaledDiam = (d.relSize / circlesMaxRawSize) * circlesMasterSize;
     const radius     = Math.max(1.5, scaledDiam / 2);   // min 3px diameter → 1.5px radius
     const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1
                  : d.border === 2 ? Math.ceil(radius * 0.35) + 4
@@ -785,8 +781,7 @@
 
     const features = barData.map(d => {
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, barsMasterSat);
-      const fillOpacity   = (d.opacity / 255) * barsMasterOpacity;
-      const heightM       = (d.relHeight / 100) * barsMaxHeight;
+      const heightM = (d.relHeight / 100) * barsMaxHeight;
 
       const coords = d.type === 1
         ? squarePolygon(d.lng, d.lat, baseRadiusDeg)
@@ -799,7 +794,6 @@
           name:        d.name,
           height:      heightM,
           color:       `rgb(${fr},${fg},${fb})`,
-          opacity:     fillOpacity,
           border:      d.border,
           borderSize:  d.borderSize
         }
@@ -812,9 +806,7 @@
     });
 
     // Layer opacity is per-layer in Mapbox (data-driven not supported for fill-extrusion-opacity)
-    // Use the average of Excel opacities × master, so a uniform Excel opacity works as expected
-    const avgExcelOpacity = barData.reduce((s, d) => s + (d.opacity / 255), 0) / barData.length;
-    const layerOpacity    = avgExcelOpacity * barsMasterOpacity;
+    const layerOpacity = barsMasterOpacity;
 
     // Main extrusion
     map.addLayer({
