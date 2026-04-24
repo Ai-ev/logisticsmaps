@@ -781,6 +781,11 @@
       data: { type: 'FeatureCollection', features }
     });
 
+    // Layer opacity is per-layer in Mapbox (data-driven not supported for fill-extrusion-opacity)
+    // Use the average of Excel opacities × master, so a uniform Excel opacity works as expected
+    const avgExcelOpacity = barData.reduce((s, d) => s + (d.opacity / 255), 0) / barData.length;
+    const layerOpacity    = avgExcelOpacity * barsMasterOpacity;
+
     // Main extrusion
     map.addLayer({
       id: 'bars-layer',
@@ -790,7 +795,8 @@
         'fill-extrusion-color':   ['get', 'color'],
         'fill-extrusion-height':  ['get', 'height'],
         'fill-extrusion-base':    0,
-        'fill-extrusion-opacity': ['get', 'opacity']
+        'fill-extrusion-opacity': layerOpacity,
+        'fill-extrusion-vertical-gradient': true
       }
     });
 
