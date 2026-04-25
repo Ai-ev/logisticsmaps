@@ -1163,9 +1163,9 @@
     ctx.translate(size * 1.5, size * 1.5);
     ctx.rotate(direction);
     ctx.beginPath();
-    ctx.moveTo(size, 0);                  // tip
-    ctx.lineTo(-size * 0.7, -size * 1.0); // back-left  (wider than line)
-    ctx.lineTo(-size * 0.7,  size * 1.0); // back-right
+    ctx.moveTo(size, 0);                   // tip
+    ctx.lineTo(-size * 0.6, -size * 0.7);  // back-left
+    ctx.lineTo(-size * 0.6,  size * 0.7);  // back-right
     ctx.closePath();
     ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
     ctx.fill();
@@ -1207,6 +1207,53 @@
   }
 
   let lineArrowMarkers = [];
+  let linesOriginalFeatures = [];   // unshortened line features, used to recompute on zoom
+
+  // Single module-level zoom-aware shortening function.
+  // Reads from linesOriginalFeatures (un-shortened), writes shortened to source.
+  function refreshArrowedLines() {
+    if (!map.getSource('lines-src') || linesOriginalFeatures.length === 0) return;
+
+    const arrowSizeFor = (d) => {
+      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
+        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
+      return Math.max(6, normW * 2);
+    };
+
+    const updated = linesOriginalFeatures.map((feat, i) => {
+      const d = lineData[i];
+      if (!d || d.arrow === 0) return feat;
+
+      const arrowSize = arrowSizeFor(d);
+      // Pull-back distance = arrow length from tip to back edge.
+      // Arrow geometry: tip at +size, back at -size*0.6  →  total length = 1.6 * size.
+      const pullPx = arrowSize * 1.6;
+
+      let coords = feat.geometry.coordinates.map(c => [...c]);
+
+      if (d.arrow === 1 || d.arrow === 3) {
+        coords[0] = shortenInScreen(coords[0], coords[1], pullPx);
+      }
+      if (d.arrow === 2 || d.arrow === 3) {
+        const last = coords.length - 1;
+        coords[last] = shortenInScreen(coords[last], coords[last - 1], pullPx);
+      }
+      return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
+    });
+
+    map.getSource('lines-src').setData({
+      type: 'FeatureCollection', features: updated
+    });
+  }
+
+  // Attach zoom/move listener exactly ONCE at startup
+  let arrowListenerAttached = false;
+  function ensureArrowListener() {
+    if (arrowListenerAttached) return;
+    map.on('zoomend', refreshArrowedLines);
+    map.on('moveend', refreshArrowedLines);
+    arrowListenerAttached = true;
+  }
 
   function clearLineArrows() {
     lineArrowMarkers.forEach(m => m.remove());
@@ -1267,9 +1314,15 @@
       }
     });
 
-    // ── Arrow placement + line shortening, all in screen space ──
-    // Lines and arrows must stay visually consistent at any zoom, so we shorten
-    // the line in screen-pixel space using map.project / map.unproject.
+    // ── Arrow placement + line shortening — using clean separation of concerns ──
+    // We store the ORIGINAL (unshortened) features on the module-level variable.
+    // refreshArrowedLines() reads these originals and writes shortened versions
+    // to the map source. Arrow markers always use the original endpoint coords.
+    linesOriginalFeatures = features.map(f => ({
+      ...f,
+      geometry: { ...f.geometry, coordinates: f.geometry.coordinates.map(c => [...c]) }
+    }));
+
     // Helper: get arrow size in pixels for a given line entry
     const arrowSizeFor = (d) => {
       const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
@@ -1277,54 +1330,15 @@
       return Math.max(6, normW * 2);
     };
 
-    // Recompute the line geometry with screen-space shortening, called on init and every zoom/move
-    const refreshArrowedLines = () => {
-      if (!map.getSource('lines-src')) return;
-
-      const updated = features.map((feat, i) => {
-        const d = lineData[i];
-        if (d.arrow === 0) return feat;
-
-        const arrowSize = arrowSizeFor(d);
-        const pullPx    = arrowSize * 1.55;   // line tucks just inside the arrow's back edge — wide arrow base hides the butt cut
-
-        const original = feat.properties.__origCoords;
-        let coords = original.map(c => [...c]);
-
-        if (d.arrow === 1 || d.arrow === 3) {
-          // Pull first point inward (toward index 1) so the line starts at the arrow base
-          coords[0] = shortenInScreen(coords[0], coords[1], pullPx);
-        }
-        if (d.arrow === 2 || d.arrow === 3) {
-          // Pull last point inward so the line ends at the arrow base
-          const last = coords.length - 1;
-          coords[last] = shortenInScreen(coords[last], coords[last - 1], pullPx);
-        }
-        return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
-      });
-
-      map.getSource('lines-src').setData({
-        type: 'FeatureCollection', features: updated
-      });
-    };
-
-    // Stash the original (unshortened) coords on each feature so we can recompute
-    features.forEach(f => { f.properties.__origCoords = f.geometry.coordinates; });
-
-    // Initial shortening pass
+    // Attach listener once, then do an initial shortening pass
+    ensureArrowListener();
     refreshArrowedLines();
 
-    // Re-shorten whenever the zoom or pan changes (lazy throttle via 'moveend')
-    map.off('zoomend', refreshArrowedLines);
-    map.off('moveend', refreshArrowedLines);
-    map.on('zoomend',  refreshArrowedLines);
-    map.on('moveend',  refreshArrowedLines);
-
-    // ── Place arrow markers — anchor at tip via Mapbox's offset option (in pixels) ──
+    // ── Place arrow markers using ORIGINAL endpoint coordinates ──
     lineData.forEach((d, i) => {
       if (d.arrow === 0) return;
 
-      const coords      = features[i].geometry.coordinates;
+      const origCoords  = linesOriginalFeatures[i].geometry.coordinates;
       const [fr,fg,fb]  = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
       const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
       const arrowSize   = arrowSizeFor(d);
@@ -1333,10 +1347,8 @@
         const bearing = geoBearing(fromCoord[0], fromCoord[1], tipCoord[0], tipCoord[1]);
         const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
 
-        // The drawn tip sits at +arrowSize from the canvas centre, rotated by `bearing`.
-        // To place the tip at the geo coordinate, we set the marker offset to push the
-        // canvas centre AWAY from the tip direction by arrowSize pixels.
-        // bearing 0 = pointing east (+x), so offset = (-cos*size, -sin*size) flips it.
+        // bearing 0 = east; tip sits at +arrowSize east of canvas centre.
+        // Offset pushes the canvas centre back from the tip so the tip lands on tipCoord.
         const offX = -Math.cos(bearing) * arrowSize;
         const offY = -Math.sin(bearing) * arrowSize;
 
@@ -1353,14 +1365,11 @@
       };
 
       if (d.arrow === 1 || d.arrow === 3) {
-        // Start arrow — tip at first coord, pointing OUT (away from line)
-        // Use the second-to-first vector reversed: bearing is from coords[1] -> coords[0]
-        placeArrow(coords[0], coords[1]);
+        placeArrow(origCoords[0], origCoords[1]);
       }
       if (d.arrow === 2 || d.arrow === 3) {
-        // End arrow — tip at last coord, pointing along line direction
-        const last = coords.length - 1;
-        placeArrow(coords[last], coords[last - 1]);
+        const last = origCoords.length - 1;
+        placeArrow(origCoords[last], origCoords[last - 1]);
       }
     });
 
