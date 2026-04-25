@@ -1155,24 +1155,26 @@
   }
 
   // Arrow head marker — small triangular canvas rotated toward direction
-  function drawArrowCanvas(r, g, b, size, direction, opacity) {
+  // Build a single arrow icon as an ImageData for Mapbox to use as a symbol icon.
+  // We draw it WHITE so Mapbox's icon-color paint property can tint it per feature.
+  // The icon points to the right (east, 0 radians) by default; icon-rotate handles the rest.
+  function buildArrowImage(size) {
     const canvas = document.createElement('canvas');
     canvas.width  = size * 3;
     canvas.height = size * 3;
     const ctx = canvas.getContext('2d');
-    ctx.translate(size * 1.5, size * 1.5);
-    ctx.rotate(direction);
+    ctx.translate(size * 1.5, size * 1.5);   // centre
     ctx.beginPath();
-    ctx.moveTo(size, 0);                   // tip
-    ctx.lineTo(-size * 0.6, -size * 0.7);  // back-left
-    ctx.lineTo(-size * 0.6,  size * 0.7);  // back-right
+    ctx.moveTo(size, 0);                     // tip — east
+    ctx.lineTo(-size * 0.6, -size * 0.7);    // back-left
+    ctx.lineTo(-size * 0.6,  size * 0.7);    // back-right
     ctx.closePath();
-    ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+    ctx.fillStyle = '#ffffff';               // white so icon-color can tint it
     ctx.fill();
-    ctx.strokeStyle = `rgba(0,0,0,${opacity * 0.6})`;
+    ctx.strokeStyle = '#000000';
     ctx.lineWidth = 1;
     ctx.stroke();
-    return canvas;
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
   }
 
   // Compute true geographic bearing (in radians) from point A to point B
@@ -1185,172 +1187,35 @@
     return Math.atan2(x, y) - Math.PI / 2;
   }
 
-  // Find a stable "from" point along the polyline by walking back from the end
-  // until we're at least `minPx` away in screen pixels. Returns the index found.
-  function findStableFromIndex(coordsArray, endIndex, walkDirection, minPx) {
-    const endPx = map.project(coordsArray[endIndex]);
-    let i = endIndex + walkDirection;
-    while (i >= 0 && i < coordsArray.length) {
-      const px = map.project(coordsArray[i]);
-      const dx = px.x - endPx.x;
-      const dy = px.y - endPx.y;
-      if (Math.sqrt(dx*dx + dy*dy) >= minPx) return i;
-      i += walkDirection;
+  // ── Symbol-layer based arrows ──
+  // Arrows render as part of the Mapbox style (a 'symbol' layer that uses our
+  // arrow icon image). This means Mapbox handles all the zoom/rotation/pitch
+  // tracking automatically — no marker bookkeeping needed.
+  const ARROW_ICON_SIZE = 24;     // base size in pixels for the icon image
+  let arrowImageRegistered = false;
+
+  function ensureArrowImage() {
+    if (arrowImageRegistered) return;
+    if (map.hasImage('arrow-icon')) {
+      arrowImageRegistered = true;
+      return;
     }
-    // Walked off the end — return the furthest point we have
-    return walkDirection > 0 ? coordsArray.length - 1 : 0;
+    const img = buildArrowImage(ARROW_ICON_SIZE);
+    map.addImage('arrow-icon', img, { sdf: true });   // sdf:true allows tinting via icon-color
+    arrowImageRegistered = true;
   }
 
-  // Move targetCoord back toward fromCoord by `pixelDist` screen pixels.
-  // Uses screen projection so it's zoom-correct.
-  function shortenInScreen(targetCoord, fromCoord, pixelDist) {
-    const targetPx = map.project(targetCoord);
-    const fromPx   = map.project(fromCoord);
-    const dx = targetPx.x - fromPx.x;
-    const dy = targetPx.y - fromPx.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return fromCoord;
-    if (len < pixelDist) return fromCoord;
-    const newPx = {
-      x: targetPx.x - (dx / len) * pixelDist,
-      y: targetPx.y - (dy / len) * pixelDist
-    };
-    const newLngLat = map.unproject(newPx);
-    return [newLngLat.lng, newLngLat.lat];
-  }
-
-  let lineArrowMarkers = [];
-  let linesOriginalFeatures = [];   // unshortened line features, used to recompute on zoom
-
-  // Single module-level zoom-aware shortening function.
-  // Reads from linesOriginalFeatures (un-shortened), writes shortened to source.
-  function refreshArrowedLines() {
-    if (!map.getSource('lines-src') || linesOriginalFeatures.length === 0) return;
-
-    const arrowSizeFor = (d) => {
-      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
-        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
-      return Math.max(6, normW * 2);
-    };
-
-    const updated = linesOriginalFeatures.map((feat, i) => {
-      const d = lineData[i];
-      if (!d || d.arrow === 0) return feat;
-
-      const arrowSize = arrowSizeFor(d);
-      // Pull-back distance = arrow length from tip to back edge.
-      // Arrow geometry: tip at +size, back at -size*0.6  →  total length = 1.6 * size.
-      const pullPx = arrowSize * 1.6;
-
-      let coords = feat.geometry.coordinates.map(c => [...c]);
-      // Use a stable reference point that is at least 2x pullPx away in pixels so
-      // floating-point precision issues at low zoom don't corrupt the direction.
-      const stableMinPx = pullPx * 2;
-
-      if (d.arrow === 1 || d.arrow === 3) {
-        const fromIdx = findStableFromIndex(coords, 0, +1, stableMinPx);
-        coords[0] = shortenInScreen(coords[0], coords[fromIdx], pullPx);
-      }
-      if (d.arrow === 2 || d.arrow === 3) {
-        const last = coords.length - 1;
-        const fromIdx = findStableFromIndex(coords, last, -1, stableMinPx);
-        coords[last] = shortenInScreen(coords[last], coords[fromIdx], pullPx);
-      }
-      return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
-    });
-
-    map.getSource('lines-src').setData({
-      type: 'FeatureCollection', features: updated
-    });
-  }
-
-  // Attach zoom/move listener exactly ONCE at startup.
-  // On zoom, both the line shortening AND arrow rotation need to refresh,
-  // since screen-space bearings change with zoom on long/curved/geodesic lines.
-  let arrowListenerAttached = false;
-  let arrowRefreshScheduled  = false;
-
-  function refreshArrowedAllImmediate() {
-    refreshArrowedLines();
-    if (linesVisible && lineData.length && lineData.some(d => d.arrow !== 0)) {
-      replaceArrowMarkers();
+  // Re-register the icon if the style is reloaded (icons don't survive setStyle)
+  map.on('styledata', () => {
+    arrowImageRegistered = false;
+    if (lineData.some(d => d.arrow !== 0)) {
+      ensureArrowImage();
     }
-  }
-
-  // Throttle continuous-zoom refresh via requestAnimationFrame so we update
-  // every frame at most, not every event firing.
-  function scheduleArrowRefresh() {
-    if (arrowRefreshScheduled) return;
-    arrowRefreshScheduled = true;
-    requestAnimationFrame(() => {
-      arrowRefreshScheduled = false;
-      refreshArrowedAllImmediate();
-    });
-  }
-
-  function ensureArrowListener() {
-    if (arrowListenerAttached) return;
-    // Continuous events fire many times during pan/zoom animations
-    map.on('zoom',  scheduleArrowRefresh);
-    map.on('move',  scheduleArrowRefresh);
-    // Final snap on the end events to make sure the last frame is correct
-    map.on('zoomend', refreshArrowedAllImmediate);
-    map.on('moveend', refreshArrowedAllImmediate);
-    arrowListenerAttached = true;
-  }
-
-  // Re-create arrow markers based on current zoom — uses linesOriginalFeatures
-  function replaceArrowMarkers() {
-    clearLineArrows();
-
-    const arrowSizeFor = (d) => {
-      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
-        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
-      return Math.max(6, normW * 2);
-    };
-
-    lineData.forEach((d, i) => {
-      if (d.arrow === 0) return;
-      const origCoords = linesOriginalFeatures[i].geometry.coordinates;
-      const [fr,fg,fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
-      const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
-      const arrowSize = arrowSizeFor(d);
-      const stableMinPx = arrowSize * 3;
-
-      const placeArrow = (tipCoord, fromCoord) => {
-        const tipPx  = map.project(tipCoord);
-        const fromPx = map.project(fromCoord);
-        const bearing = Math.atan2(tipPx.y - fromPx.y, tipPx.x - fromPx.x);
-        const canvas = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
-        const offX = -Math.cos(bearing) * arrowSize;
-        const offY = -Math.sin(bearing) * arrowSize;
-        const marker = new mapboxgl.Marker({
-          element:           canvas,
-          anchor:            'center',
-          offset:            [offX, offY],
-          pitchAlignment:    'viewport',
-          rotationAlignment: 'viewport'
-        })
-          .setLngLat(tipCoord)
-          .addTo(map);
-        lineArrowMarkers.push(marker);
-      };
-
-      if (d.arrow === 1 || d.arrow === 3) {
-        const fromIdx = findStableFromIndex(origCoords, 0, +1, stableMinPx);
-        placeArrow(origCoords[0], origCoords[fromIdx]);
-      }
-      if (d.arrow === 2 || d.arrow === 3) {
-        const last = origCoords.length - 1;
-        const fromIdx = findStableFromIndex(origCoords, last, -1, stableMinPx);
-        placeArrow(origCoords[last], origCoords[fromIdx]);
-      }
-    });
-  }
+  });
 
   function clearLineArrows() {
-    lineArrowMarkers.forEach(m => m.remove());
-    lineArrowMarkers = [];
+    if (map.getLayer('arrows-layer'))   map.removeLayer('arrows-layer');
+    if (map.getSource('arrows-src'))    map.removeSource('arrows-src');
   }
 
   function renderLines() {
@@ -1407,71 +1272,103 @@
       }
     });
 
-    // ── Arrow placement + line shortening — using clean separation of concerns ──
-    // We store the ORIGINAL (unshortened) features on the module-level variable.
-    // refreshArrowedLines() reads these originals and writes shortened versions
-    // to the map source. Arrow markers always use the original endpoint coords.
-    linesOriginalFeatures = features.map(f => ({
-      ...f,
-      geometry: { ...f.geometry, coordinates: f.geometry.coordinates.map(c => [...c]) }
-    }));
+    // ── Arrow rendering via Mapbox symbol layer ──
+    // Build a separate point GeoJSON for arrow tips. Mapbox handles all
+    // zoom / rotation / pitch tracking automatically.
+    if (lineData.some(d => d.arrow !== 0)) {
+      ensureArrowImage();
 
-    // Helper: get arrow size in pixels for a given line entry
-    const arrowSizeFor = (d) => {
-      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
-        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
-      return Math.max(6, normW * 2);
-    };
-
-    // Attach listener once, then do an initial shortening pass
-    ensureArrowListener();
-    refreshArrowedLines();
-
-    // ── Place arrow markers using ORIGINAL endpoint coordinates ──
-    lineData.forEach((d, i) => {
-      if (d.arrow === 0) return;
-
-      const origCoords  = linesOriginalFeatures[i].geometry.coordinates;
-      const [fr,fg,fb]  = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
-      const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
-      const arrowSize   = arrowSizeFor(d);
-
-      const placeArrow = (tipCoord, fromCoord) => {
-        // Use SCREEN-space direction (not great-circle bearing) so arrow aligns with
-        // how the line is actually rendered in Mercator at the current zoom.
-        const tipPx  = map.project(tipCoord);
-        const fromPx = map.project(fromCoord);
-        // Canvas y axis: +y = down in screen but +y = south in pitchAlignment 'map'.
-        // For the rotation we use atan2(dy, dx) in screen-space pixels.
-        const bearing = Math.atan2(tipPx.y - fromPx.y, tipPx.x - fromPx.x);
-
-        const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
-        const offX = -Math.cos(bearing) * arrowSize;
-        const offY = -Math.sin(bearing) * arrowSize;
-
-        const marker = new mapboxgl.Marker({
-          element:           canvas,
-          anchor:            'center',
-          offset:            [offX, offY],
-          pitchAlignment:    'viewport',
-          rotationAlignment: 'viewport'
-        })
-          .setLngLat(tipCoord)
-          .addTo(map);
-        lineArrowMarkers.push(marker);
+      // Geographic bearing in degrees clockwise from north
+      const geoBearingDeg = (lng1, lat1, lng2, lat2) => {
+        const toRad = d => d * Math.PI / 180;
+        const φ1 = toRad(lat1), φ2 = toRad(lat2);
+        const Δλ = toRad(lng2 - lng1);
+        const x = Math.sin(Δλ) * Math.cos(φ2);
+        const y = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+        return ((Math.atan2(x, y) * 180 / Math.PI) + 360) % 360;
       };
 
-      const stableMinPx = arrowSize * 3;
-      if (d.arrow === 1 || d.arrow === 3) {
-        const fromIdx = findStableFromIndex(origCoords, 0, +1, stableMinPx);
-        placeArrow(origCoords[0], origCoords[fromIdx]);
-      }
-      if (d.arrow === 2 || d.arrow === 3) {
-        const last = origCoords.length - 1;
-        const fromIdx = findStableFromIndex(origCoords, last, -1, stableMinPx);
-        placeArrow(origCoords[last], origCoords[fromIdx]);
-      }
-    });
+      const arrowSizeFor = (d) => {
+        const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
+          : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
+        return Math.max(6, normW * 2);
+      };
+
+      const arrowFeatures = [];
+      lineData.forEach((d, i) => {
+        if (d.arrow === 0) return;
+        const coords     = features[i].geometry.coordinates;
+        const [fr,fg,fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+        const arrowSize  = arrowSizeFor(d);
+        // icon is drawn at ARROW_ICON_SIZE pixels; we want effective size of arrowSize*2
+        const iconScale  = (arrowSize * 2) / ARROW_ICON_SIZE;
+
+        if (d.arrow === 2 || d.arrow === 3) {
+          // End arrow — direction from a point a few back to the last point
+          const last    = coords.length - 1;
+          const fromIdx = Math.max(0, last - 3);
+          const compass = geoBearingDeg(
+            coords[fromIdx][0], coords[fromIdx][1],
+            coords[last][0],    coords[last][1]
+          );
+          arrowFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: coords[last] },
+            properties: {
+              rotate: compass - 90,    // east-pointing icon rotated to bearing
+              color:  `rgb(${fr},${fg},${fb})`,
+              size:   iconScale
+            }
+          });
+        }
+        if (d.arrow === 1 || d.arrow === 3) {
+          // Start arrow — direction from a point a few forward back to first point
+          const fromIdx = Math.min(coords.length - 1, 3);
+          const compass = geoBearingDeg(
+            coords[fromIdx][0], coords[fromIdx][1],
+            coords[0][0],       coords[0][1]
+          );
+          arrowFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: coords[0] },
+            properties: {
+              rotate: compass - 90,
+              color:  `rgb(${fr},${fg},${fb})`,
+              size:   iconScale
+            }
+          });
+        }
+      });
+
+      // Use first line's opacity as a representative; per-line opacity could be
+      // added later via expressions if needed.
+      const layerOpacity = lineData.length > 0
+        ? (lineData[0].opacity / 255) * linesMasterOpacity
+        : linesMasterOpacity;
+
+      map.addSource('arrows-src', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: arrowFeatures }
+      });
+      map.addLayer({
+        id: 'arrows-layer',
+        type: 'symbol',
+        source: 'arrows-src',
+        layout: {
+          'icon-image':              'arrow-icon',
+          'icon-rotate':             ['get', 'rotate'],
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment':    'map',
+          'icon-size':               ['get', 'size'],
+          'icon-allow-overlap':      true,
+          'icon-ignore-placement':   true
+        },
+        paint: {
+          'icon-color':   ['get', 'color'],
+          'icon-opacity': layerOpacity
+        }
+      });
+    }
 
     // Tooltip on lines
     map.on('mouseenter', 'lines-layer', e => {
