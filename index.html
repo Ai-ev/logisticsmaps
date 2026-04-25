@@ -487,8 +487,13 @@
       map.setPaintProperty('sat-layer', 'raster-saturation', satSat - 1.0);
     } catch(e) {}
     const t = vectorVisible ? vectorOpacity : 0;
+    // Only touch vector base style layers - never touch our own data layers
+    const ownLayers = new Set([
+      'sat-layer', 'circles-layer', 'circles-border-layer',
+      'bars-layer', 'lines-layer', 'arrows-layer'
+    ]);
     map.getStyle().layers.forEach(layer => {
-      if (layer.id === 'sat-layer' || layer.id === 'circles-layer') return;
+      if (ownLayers.has(layer.id)) return;
       try {
         const lt = layer.type;
         if (lt === 'background') map.setPaintProperty(layer.id, 'background-opacity', t);
