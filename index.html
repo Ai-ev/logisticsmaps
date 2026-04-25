@@ -1257,7 +1257,7 @@
       type: 'line',
       source: 'lines-src',
       layout: {
-        'line-cap':  'round',
+        'line-cap':  'butt',
         'line-join': 'round'
       },
       paint: {
@@ -1286,7 +1286,7 @@
         if (d.arrow === 0) return feat;
 
         const arrowSize = arrowSizeFor(d);
-        const pullPx    = arrowSize;   // pull line back exactly by arrow length so tip = base
+        const pullPx    = arrowSize * 1.15;   // pull line back slightly past arrow base to avoid opacity overlap
 
         const original = feat.properties.__origCoords;
         let coords = original.map(c => [...c]);
