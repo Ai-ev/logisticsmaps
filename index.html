@@ -1155,7 +1155,7 @@
   }
 
   // Arrow head marker — small triangular canvas rotated toward direction
-  function drawArrowCanvas(r, g, b, size, direction) {
+  function drawArrowCanvas(r, g, b, size, direction, opacity) {
     const canvas = document.createElement('canvas');
     canvas.width  = size * 3;
     canvas.height = size * 3;
@@ -1167,9 +1167,9 @@
     ctx.lineTo(-size * 0.6, -size * 0.7);
     ctx.lineTo(-size * 0.6,  size * 0.7);
     ctx.closePath();
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeStyle = `rgba(0,0,0,${opacity * 0.6})`;
     ctx.lineWidth = 1;
     ctx.stroke();
     return canvas;
@@ -1182,8 +1182,24 @@
     const Δλ = toRad(lng2 - lng1);
     const x  = Math.sin(Δλ) * Math.cos(φ2);
     const y  = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    // atan2 gives bearing from North, but canvas 0° is East — adjust by -90°
     return Math.atan2(x, y) - Math.PI / 2;
+  }
+
+  // Move a [lng, lat] coordinate back from a target point along a bearing by
+  // a given pixel distance. We approximate: 1px ≈ (360 / (256 * 2^zoom)) degrees.
+  // At zoom 4, this ≈ 0.0055°/px which is a reasonable mid-range approximation.
+  // We use a fixed scale factor tuned for mid-zoom logistics views.
+  function pullBackCoord(lng, lat, bearingRad, pixelDist) {
+    // Convert pixel distance to approximate degrees at mid-zoom (zoom ~4)
+    const degPerPx = 0.008;  // tuned: feels right at European/world scale
+    const distDeg  = pixelDist * degPerPx;
+    // Reverse the bearing (go from the point back toward the line)
+    const revBearing = bearingRad + Math.PI;
+    // North-based bearing for the geo offset
+    const northBearing = revBearing + Math.PI / 2;
+    const dLng = distDeg * Math.cos(northBearing) / Math.cos(lat * Math.PI / 180);
+    const dLat = distDeg * Math.sin(northBearing);
+    return [lng + dLng, lat + dLat];
   }
 
   let lineArrowMarkers = [];
@@ -1247,22 +1263,70 @@
       }
     });
 
-    // Add arrows where requested
+    // Add arrows where requested — tip at coordinate, line pulled back to arrow base
+    // We rebuild the features array with shortened coords for arrowed lines
+    const shortenedFeatures = features.map((feat, i) => {
+      const d = lineData[i];
+      if (d.arrow === 0) return feat;
+
+      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
+        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
+      const arrowSize = Math.max(6, normW * 2);
+      // Pull-back distance = arrow body length (size * 1.6 from tip to base)
+      const pullPx = arrowSize * 1.6;
+
+      let coords = [...feat.geometry.coordinates];
+
+      if (d.arrow === 1 || d.arrow === 3) {
+        // Shorten line start — pull first point back away from start arrow tip
+        const bearing = geoBearing(coords[0][0], coords[0][1], coords[1][0], coords[1][1]);
+        coords[0] = pullBackCoord(coords[0][0], coords[0][1], bearing + Math.PI, pullPx);
+      }
+      if (d.arrow === 2 || d.arrow === 3) {
+        // Shorten line end — pull last point back away from end arrow tip
+        const last = coords.length - 1;
+        const bearing = geoBearing(coords[last-1][0], coords[last-1][1], coords[last][0], coords[last][1]);
+        coords[last] = pullBackCoord(coords[last][0], coords[last][1], bearing, pullPx);
+      }
+
+      return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
+    });
+
+    // Update the source with shortened lines
+    if (shortenedFeatures.some((f, i) => lineData[i].arrow !== 0)) {
+      map.getSource('lines-src').setData({
+        type: 'FeatureCollection', features: shortenedFeatures
+      });
+    }
+
     lineData.forEach((d, i) => {
       if (d.arrow === 0) return;
 
       const coords = features[i].geometry.coordinates;
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+      const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
       const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
         : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
       const arrowSize = Math.max(6, normW * 2);
 
-      const placeArrow = (coord, prev) => {
-        // Use geographic bearing so the arrow aligns correctly regardless of latitude
-        const angle = geoBearing(prev[0], prev[1], coord[0], coord[1]);
-        const canvas = drawArrowCanvas(fr, fg, fb, arrowSize, angle);
+      const placeArrow = (coord, fromCoord, isTip) => {
+        const bearing = geoBearing(fromCoord[0], fromCoord[1], coord[0], coord[1]);
+        const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
+
+        // Offset so the tip of the arrow (front point) sits exactly on coord.
+        // The tip is at +size from centre in the rotated canvas.
+        // We place the marker at the tip coordinate and anchor at 'center',
+        // then shift the element so the tip aligns with the geo point.
+        const tipOffsetPx = arrowSize;  // distance from canvas centre to tip
+        const el = canvas;
+        // Apply CSS transform to shift canvas so tip aligns with marker position
+        // Shift along the bearing direction by -tipOffsetPx (back toward base)
+        const shiftX = -Math.cos(bearing + Math.PI / 2) * tipOffsetPx;
+        const shiftY = -Math.sin(bearing + Math.PI / 2) * tipOffsetPx;
+        el.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+
         const marker = new mapboxgl.Marker({
-          element: canvas,
+          element: el,
           anchor: 'center',
           pitchAlignment: 'map',
           rotationAlignment: 'map'
@@ -1273,12 +1337,13 @@
       };
 
       if (d.arrow === 1 || d.arrow === 3) {
-        // Start arrow — direction reversed (pointing backward along the line)
-        placeArrow(coords[0], coords[1]);
+        // Start arrow — tip at first coordinate, pointing away from line
+        placeArrow(coords[0], coords[1], true);
       }
       if (d.arrow === 2 || d.arrow === 3) {
-        // End arrow — direction forward
-        placeArrow(coords[coords.length - 1], coords[coords.length - 2]);
+        // End arrow — tip at last coordinate, pointing along line direction
+        const last = coords.length - 1;
+        placeArrow(coords[last], coords[last - 1], true);
       }
     });
 
