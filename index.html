@@ -500,7 +500,8 @@
         if (lt === 'fill')       map.setPaintProperty(layer.id, 'fill-opacity',       t);
         if (lt === 'line')       map.setPaintProperty(layer.id, 'line-opacity',       t);
         if (lt === 'circle')     map.setPaintProperty(layer.id, 'circle-opacity',     t);
-        if (lt === 'raster')     map.setPaintProperty(layer.id, 'raster-opacity',     t);
+        if (lt === 'raster')          map.setPaintProperty(layer.id, 'raster-opacity',          t);
+        if (lt === 'fill-extrusion') map.setPaintProperty(layer.id, 'fill-extrusion-opacity', t);
         if (lt === 'symbol') {
           map.setPaintProperty(layer.id, 'icon-opacity', t);
           map.setPaintProperty(layer.id, 'text-opacity', t);
@@ -518,7 +519,20 @@
     document.getElementById('theme-light').classList.toggle('active', theme === 'light');
     styleReady = false;
     map.setStyle(VECTOR_STYLES[theme]);
-    map.once('style.load', () => { styleReady = true; ensureSatLayer(); applyMapLayers(); renderCircles(); renderBars(); renderLines(); });
+    map.once('style.load', () => {
+      styleReady = true;
+      ensureSatLayer();
+      applyMapLayers();
+      renderCircles();
+      renderBars();
+      renderLines();
+      // Re-apply circle opacity explicitly after all layers are built,
+      // in case anything in the render pipeline or Mapbox internals reset it.
+      try {
+        if (map.getLayer('circles-layer'))
+          map.setPaintProperty('circles-layer', 'fill-extrusion-opacity', circlesMasterOpacity);
+      } catch(e) {}
+    });
   }
   function onSatToggle()      { satVisible = document.getElementById('tog-sat').checked; applyMapLayers(); }
   function onSatOpacity(v)    { satOpacity = v/100; document.getElementById('val-sat-op').textContent  = v+'%'; applyMapLayers(); }
@@ -854,8 +868,13 @@
   }
 
   function clearCircleMarkers() {
+    // Remove orb HTML markers
     circleMarkers.forEach(m => m.remove());
     circleMarkers = [];
+    // Remove flat circle canvas layers — order matters: remove layers before source
+    if (map.getLayer('circles-border-layer')) map.removeLayer('circles-border-layer');
+    if (map.getLayer('circles-layer'))        map.removeLayer('circles-layer');
+    if (map.getSource('circles-src'))         map.removeSource('circles-src');
   }
 
   // Compute the radius in degrees for a circle, using area-based (sqrt) scaling
