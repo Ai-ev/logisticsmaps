@@ -827,11 +827,89 @@
     circleMarkers = [];
   }
 
+  // Compute the diameter (px) for a single circle entry, applying the area-based scaling
+  function circleDiameterPx(d) {
+    if (circlesAllSame || circlesMaxRaw === circlesMinRaw) return circlesMinPx;
+    const sqrtMin = Math.sqrt(circlesMinRaw);
+    const sqrtMax = Math.sqrt(circlesMaxRaw);
+    const sqrtVal = Math.sqrt(d.relSize);
+    const t = (sqrtVal - sqrtMin) / (sqrtMax - sqrtMin);
+    return circlesMinPx + t * (circlesMaxPx - circlesMinPx);
+  }
+
   function renderCircles() {
     clearCircleMarkers();
+    if (map.getLayer('circles-layer')) map.removeLayer('circles-layer');
+    if (map.getSource('circles-src'))  map.removeSource('circles-src');
     if (!circlesVisible || circleData.length === 0) return;
 
-    circleData.forEach(d => {
+    // Split the data: flat circles (border 0 or 1) → Mapbox layer
+    //                 orbs        (border 2)        → HTML markers (kept)
+    const flatCircles = circleData.filter(d => d.border !== 2);
+    const orbCircles  = circleData.filter(d => d.border === 2);
+
+    // ── Flat circles as a Mapbox circle layer ──
+    if (flatCircles.length > 0) {
+      const features = flatCircles.map(d => {
+        const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
+        const diameter = circleDiameterPx(d);
+        const radius   = Math.max(1.5, diameter / 2);
+        const fillOpacity = (d.opacity / 255) * circlesMasterOpacity;
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+          properties: {
+            name:        d.name,
+            radius:      radius,
+            color:       `rgb(${fr},${fg},${fb})`,
+            opacity:     fillOpacity,
+            border:      d.border,
+            borderSize:  d.borderSize
+          }
+        };
+      });
+
+      map.addSource('circles-src', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features }
+      });
+
+      // Insert BEFORE bars-layer if it exists, so bars render on top of circles.
+      // If bars don't exist yet, append; later renderBars will sit on top naturally.
+      const beforeId = map.getLayer('bars-layer') ? 'bars-layer' : undefined;
+      map.addLayer({
+        id: 'circles-layer',
+        type: 'circle',
+        source: 'circles-src',
+        paint: {
+          'circle-radius':         ['get', 'radius'],
+          'circle-color':          ['get', 'color'],
+          'circle-opacity':        ['get', 'opacity'],
+          'circle-stroke-width':   ['case', ['==', ['get', 'border'], 1], ['get', 'borderSize'], 0],
+          'circle-stroke-color':   '#000000',
+          'circle-stroke-opacity': ['case', ['==', ['get', 'border'], 1], 1.0, 0]
+        }
+      }, beforeId);
+
+      // Tooltip on hover
+      map.on('mouseenter', 'circles-layer', e => {
+        map.getCanvas().style.cursor = 'pointer';
+        tooltip.style.display = 'block';
+        tooltip.textContent   = e.features[0].properties.name;
+      });
+      map.on('mousemove', 'circles-layer', e => {
+        tooltip.style.left = (e.originalEvent.clientX + 12) + 'px';
+        tooltip.style.top  = (e.originalEvent.clientY - 28) + 'px';
+        tooltip.textContent = e.features[0].properties.name;
+      });
+      map.on('mouseleave', 'circles-layer', () => {
+        map.getCanvas().style.cursor = '';
+        tooltip.style.display = 'none';
+      });
+    }
+
+    // ── Orbs as HTML markers (always on top — by design for the glossy look) ──
+    orbCircles.forEach(d => {
       const canvas = drawCircleCanvas(d, circlesMasterOpacity, circlesMasterSat);
       canvas.style.display = 'block';
       canvas.style.cursor  = 'pointer';
@@ -851,8 +929,8 @@
       const marker = new mapboxgl.Marker({
         element:           canvas,
         anchor:            'center',
-        pitchAlignment:    'map',   // lie flat on the ground, tilt with camera pitch
-        rotationAlignment: 'map'    // rotate with map bearing
+        pitchAlignment:    'map',
+        rotationAlignment: 'map'
       })
         .setLngLat([d.lng, d.lat])
         .addTo(map);
@@ -860,15 +938,46 @@
     });
   }
 
+  // Update flat-circle appearance via setData (cheap), and redraw orbs on canvas
   function updateCircleAppearance() {
+    // Flat circles — rebuild GeoJSON and update the source
+    if (map.getSource('circles-src')) {
+      const flatCircles = circleData.filter(d => d.border !== 2);
+      const features = flatCircles.map(d => {
+        const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
+        const diameter = circleDiameterPx(d);
+        const radius   = Math.max(1.5, diameter / 2);
+        const fillOpacity = (d.opacity / 255) * circlesMasterOpacity;
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+          properties: {
+            name: d.name, radius, color: `rgb(${fr},${fg},${fb})`,
+            opacity: fillOpacity, border: d.border, borderSize: d.borderSize
+          }
+        };
+      });
+      map.getSource('circles-src').setData({
+        type: 'FeatureCollection', features
+      });
+    }
+
+    // Orbs — redraw each canvas in place
     circleMarkers.forEach((marker, i) => {
-      const d      = circleData[i];
+      const d      = orbDataForMarker(i);
+      if (!d) return;
       const canvas = marker.getElement();
       const ctx    = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const fresh  = drawCircleCanvas(d, circlesMasterOpacity, circlesMasterSat);
       ctx.drawImage(fresh, 0, 0);
     });
+  }
+
+  // Helper: get the orb data corresponding to the i-th orb marker
+  function orbDataForMarker(i) {
+    const orbs = circleData.filter(d => d.border === 2);
+    return orbs[i];
   }
 
   function onCirclesToggle() {
@@ -1255,8 +1364,10 @@
       data: { type: 'FeatureCollection', features }
     });
 
-    // Place lines UNDER the circle markers / bars for a clean hierarchy
-    // (Lines live on the map canvas so circles naturally render on top)
+    // Order: lines under circles under bars
+    const linesBeforeId = map.getLayer('circles-layer') ? 'circles-layer'
+                        : map.getLayer('bars-layer')    ? 'bars-layer'
+                        : undefined;
     map.addLayer({
       id: 'lines-layer',
       type: 'line',
@@ -1270,7 +1381,7 @@
         'line-opacity': ['get', 'opacity'],
         'line-width':   ['get', 'width']
       }
-    });
+    }, linesBeforeId);
 
     // ── Arrow rendering via Mapbox symbol layer ──
     // Build a separate point GeoJSON for arrow tips. Mapbox handles all
