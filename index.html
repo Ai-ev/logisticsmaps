@@ -1268,18 +1268,34 @@
   // On zoom, both the line shortening AND arrow rotation need to refresh,
   // since screen-space bearings change with zoom on long/curved/geodesic lines.
   let arrowListenerAttached = false;
-  function refreshArrowedAll() {
+  let arrowRefreshScheduled  = false;
+
+  function refreshArrowedAllImmediate() {
     refreshArrowedLines();
-    // Re-render the entire line set to refresh arrow markers (rotation may have changed)
     if (linesVisible && lineData.length && lineData.some(d => d.arrow !== 0)) {
-      // Re-place arrow markers without rebuilding the whole layer
       replaceArrowMarkers();
     }
   }
+
+  // Throttle continuous-zoom refresh via requestAnimationFrame so we update
+  // every frame at most, not every event firing.
+  function scheduleArrowRefresh() {
+    if (arrowRefreshScheduled) return;
+    arrowRefreshScheduled = true;
+    requestAnimationFrame(() => {
+      arrowRefreshScheduled = false;
+      refreshArrowedAllImmediate();
+    });
+  }
+
   function ensureArrowListener() {
     if (arrowListenerAttached) return;
-    map.on('zoomend', refreshArrowedAll);
-    map.on('moveend', refreshArrowedAll);
+    // Continuous events fire many times during pan/zoom animations
+    map.on('zoom',  scheduleArrowRefresh);
+    map.on('move',  scheduleArrowRefresh);
+    // Final snap on the end events to make sure the last frame is correct
+    map.on('zoomend', refreshArrowedAllImmediate);
+    map.on('moveend', refreshArrowedAllImmediate);
     arrowListenerAttached = true;
   }
 
