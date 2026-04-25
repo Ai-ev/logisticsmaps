@@ -1185,21 +1185,25 @@
     return Math.atan2(x, y) - Math.PI / 2;
   }
 
-  // Move a [lng, lat] coordinate back from a target point along a bearing by
-  // a given pixel distance. We approximate: 1px ≈ (360 / (256 * 2^zoom)) degrees.
-  // At zoom 4, this ≈ 0.0055°/px which is a reasonable mid-range approximation.
-  // We use a fixed scale factor tuned for mid-zoom logistics views.
-  function pullBackCoord(lng, lat, bearingRad, pixelDist) {
-    // Convert pixel distance to approximate degrees at mid-zoom (zoom ~4)
-    const degPerPx = 0.008;  // tuned: feels right at European/world scale
-    const distDeg  = pixelDist * degPerPx;
-    // Reverse the bearing (go from the point back toward the line)
-    const revBearing = bearingRad + Math.PI;
-    // North-based bearing for the geo offset
-    const northBearing = revBearing + Math.PI / 2;
-    const dLng = distDeg * Math.cos(northBearing) / Math.cos(lat * Math.PI / 180);
-    const dLat = distDeg * Math.sin(northBearing);
-    return [lng + dLng, lat + dLat];
+  // Move a coordinate `pixelDist` pixels back along the line from `targetCoord`
+  // toward `fromCoord`, using Mapbox's screen projection so it's zoom-correct.
+  function shortenInScreen(targetCoord, fromCoord, pixelDist) {
+    const targetPx = map.project(targetCoord);
+    const fromPx   = map.project(fromCoord);
+    const dx = targetPx.x - fromPx.x;
+    const dy = targetPx.y - fromPx.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0 || len < pixelDist) {
+      // Line too short — just return the from-point so we don't flip
+      return fromCoord;
+    }
+    // Move from targetPx back toward fromPx by pixelDist
+    const newPx = {
+      x: targetPx.x - (dx / len) * pixelDist,
+      y: targetPx.y - (dy / len) * pixelDist
+    };
+    const newLngLat = map.unproject(newPx);
+    return [newLngLat.lng, newLngLat.lat];
   }
 
   let lineArrowMarkers = [];
@@ -1263,87 +1267,100 @@
       }
     });
 
-    // Add arrows where requested — tip at coordinate, line pulled back to arrow base
-    // We rebuild the features array with shortened coords for arrowed lines
-    const shortenedFeatures = features.map((feat, i) => {
-      const d = lineData[i];
-      if (d.arrow === 0) return feat;
-
+    // ── Arrow placement + line shortening, all in screen space ──
+    // Lines and arrows must stay visually consistent at any zoom, so we shorten
+    // the line in screen-pixel space using map.project / map.unproject.
+    // Helper: get arrow size in pixels for a given line entry
+    const arrowSizeFor = (d) => {
       const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
         : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
-      const arrowSize = Math.max(6, normW * 2);
-      // Pull-back distance = arrow body length (size * 1.6 from tip to base)
-      const pullPx = arrowSize * 1.6;
+      return Math.max(6, normW * 2);
+    };
 
-      let coords = [...feat.geometry.coordinates];
+    // Recompute the line geometry with screen-space shortening, called on init and every zoom/move
+    const refreshArrowedLines = () => {
+      if (!map.getSource('lines-src')) return;
 
-      if (d.arrow === 1 || d.arrow === 3) {
-        // Shorten line start — pull first point back away from start arrow tip
-        const bearing = geoBearing(coords[0][0], coords[0][1], coords[1][0], coords[1][1]);
-        coords[0] = pullBackCoord(coords[0][0], coords[0][1], bearing + Math.PI, pullPx);
-      }
-      if (d.arrow === 2 || d.arrow === 3) {
-        // Shorten line end — pull last point back away from end arrow tip
-        const last = coords.length - 1;
-        const bearing = geoBearing(coords[last-1][0], coords[last-1][1], coords[last][0], coords[last][1]);
-        coords[last] = pullBackCoord(coords[last][0], coords[last][1], bearing, pullPx);
-      }
+      const updated = features.map((feat, i) => {
+        const d = lineData[i];
+        if (d.arrow === 0) return feat;
 
-      return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
-    });
+        const arrowSize = arrowSizeFor(d);
+        const pullPx    = arrowSize;   // pull line back exactly by arrow length so tip = base
 
-    // Update the source with shortened lines
-    if (shortenedFeatures.some((f, i) => lineData[i].arrow !== 0)) {
-      map.getSource('lines-src').setData({
-        type: 'FeatureCollection', features: shortenedFeatures
+        const original = feat.properties.__origCoords;
+        let coords = original.map(c => [...c]);
+
+        if (d.arrow === 1 || d.arrow === 3) {
+          // Pull first point inward (toward index 1) so the line starts at the arrow base
+          coords[0] = shortenInScreen(coords[0], coords[1], pullPx);
+        }
+        if (d.arrow === 2 || d.arrow === 3) {
+          // Pull last point inward so the line ends at the arrow base
+          const last = coords.length - 1;
+          coords[last] = shortenInScreen(coords[last], coords[last - 1], pullPx);
+        }
+        return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
       });
-    }
 
+      map.getSource('lines-src').setData({
+        type: 'FeatureCollection', features: updated
+      });
+    };
+
+    // Stash the original (unshortened) coords on each feature so we can recompute
+    features.forEach(f => { f.properties.__origCoords = f.geometry.coordinates; });
+
+    // Initial shortening pass
+    refreshArrowedLines();
+
+    // Re-shorten whenever the zoom or pan changes (lazy throttle via 'moveend')
+    map.off('zoomend', refreshArrowedLines);
+    map.off('moveend', refreshArrowedLines);
+    map.on('zoomend',  refreshArrowedLines);
+    map.on('moveend',  refreshArrowedLines);
+
+    // ── Place arrow markers — anchor at tip via Mapbox's offset option (in pixels) ──
     lineData.forEach((d, i) => {
       if (d.arrow === 0) return;
 
-      const coords = features[i].geometry.coordinates;
-      const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+      const coords      = features[i].geometry.coordinates;
+      const [fr,fg,fb]  = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
       const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
-      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
-        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
-      const arrowSize = Math.max(6, normW * 2);
+      const arrowSize   = arrowSizeFor(d);
 
-      const placeArrow = (coord, fromCoord, isTip) => {
-        const bearing = geoBearing(fromCoord[0], fromCoord[1], coord[0], coord[1]);
+      const placeArrow = (tipCoord, fromCoord) => {
+        const bearing = geoBearing(fromCoord[0], fromCoord[1], tipCoord[0], tipCoord[1]);
         const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
 
-        // Offset so the tip of the arrow (front point) sits exactly on coord.
-        // The tip is at +size from centre in the rotated canvas.
-        // We place the marker at the tip coordinate and anchor at 'center',
-        // then shift the element so the tip aligns with the geo point.
-        const tipOffsetPx = arrowSize;  // distance from canvas centre to tip
-        const el = canvas;
-        // Apply CSS transform to shift canvas so tip aligns with marker position
-        // Shift along the bearing direction by -tipOffsetPx (back toward base)
-        const shiftX = -Math.cos(bearing + Math.PI / 2) * tipOffsetPx;
-        const shiftY = -Math.sin(bearing + Math.PI / 2) * tipOffsetPx;
-        el.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+        // The drawn tip sits at +arrowSize from the canvas centre, rotated by `bearing`.
+        // To place the tip at the geo coordinate, we set the marker offset to push the
+        // canvas centre AWAY from the tip direction by arrowSize pixels.
+        // bearing 0 = pointing east (+x), so offset = (-cos*size, -sin*size) flips it.
+        const offX = -Math.cos(bearing) * arrowSize;
+        const offY = -Math.sin(bearing) * arrowSize;
 
         const marker = new mapboxgl.Marker({
-          element: el,
-          anchor: 'center',
-          pitchAlignment: 'map',
+          element:           canvas,
+          anchor:            'center',
+          offset:            [offX, offY],
+          pitchAlignment:    'map',
           rotationAlignment: 'map'
         })
-          .setLngLat(coord)
+          .setLngLat(tipCoord)
           .addTo(map);
         lineArrowMarkers.push(marker);
       };
 
       if (d.arrow === 1 || d.arrow === 3) {
-        // Start arrow — tip at first coordinate, pointing away from line
-        placeArrow(coords[0], coords[1], true);
+        // Start arrow — tip at first coord, pointing OUT (away from line)
+        // Use the second-to-first vector reversed: bearing is from coords[1] -> coords[0]
+        placeArrow(coords[0], coords[1]);
       }
       if (d.arrow === 2 || d.arrow === 3) {
-        // End arrow — tip at last coordinate, pointing along line direction
+        // End arrow — tip at last coord, pointing along line direction
         const last = coords.length - 1;
-        placeArrow(coords[last], coords[last - 1], true);
+        placeArrow(coords[last], coords[last - 1]);
       }
     });
 
