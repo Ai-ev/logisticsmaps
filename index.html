@@ -1185,19 +1185,32 @@
     return Math.atan2(x, y) - Math.PI / 2;
   }
 
-  // Move a coordinate `pixelDist` pixels back along the line from `targetCoord`
-  // toward `fromCoord`, using Mapbox's screen projection so it's zoom-correct.
+  // Find a stable "from" point along the polyline by walking back from the end
+  // until we're at least `minPx` away in screen pixels. Returns the index found.
+  function findStableFromIndex(coordsArray, endIndex, walkDirection, minPx) {
+    const endPx = map.project(coordsArray[endIndex]);
+    let i = endIndex + walkDirection;
+    while (i >= 0 && i < coordsArray.length) {
+      const px = map.project(coordsArray[i]);
+      const dx = px.x - endPx.x;
+      const dy = px.y - endPx.y;
+      if (Math.sqrt(dx*dx + dy*dy) >= minPx) return i;
+      i += walkDirection;
+    }
+    // Walked off the end — return the furthest point we have
+    return walkDirection > 0 ? coordsArray.length - 1 : 0;
+  }
+
+  // Move targetCoord back toward fromCoord by `pixelDist` screen pixels.
+  // Uses screen projection so it's zoom-correct.
   function shortenInScreen(targetCoord, fromCoord, pixelDist) {
     const targetPx = map.project(targetCoord);
     const fromPx   = map.project(fromCoord);
     const dx = targetPx.x - fromPx.x;
     const dy = targetPx.y - fromPx.y;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0 || len < pixelDist) {
-      // Line too short — just return the from-point so we don't flip
-      return fromCoord;
-    }
-    // Move from targetPx back toward fromPx by pixelDist
+    if (len === 0) return fromCoord;
+    if (len < pixelDist) return fromCoord;
     const newPx = {
       x: targetPx.x - (dx / len) * pixelDist,
       y: targetPx.y - (dy / len) * pixelDist
@@ -1230,13 +1243,18 @@
       const pullPx = arrowSize * 1.6;
 
       let coords = feat.geometry.coordinates.map(c => [...c]);
+      // Use a stable reference point that is at least 2x pullPx away in pixels so
+      // floating-point precision issues at low zoom don't corrupt the direction.
+      const stableMinPx = pullPx * 2;
 
       if (d.arrow === 1 || d.arrow === 3) {
-        coords[0] = shortenInScreen(coords[0], coords[1], pullPx);
+        const fromIdx = findStableFromIndex(coords, 0, +1, stableMinPx);
+        coords[0] = shortenInScreen(coords[0], coords[fromIdx], pullPx);
       }
       if (d.arrow === 2 || d.arrow === 3) {
         const last = coords.length - 1;
-        coords[last] = shortenInScreen(coords[last], coords[last - 1], pullPx);
+        const fromIdx = findStableFromIndex(coords, last, -1, stableMinPx);
+        coords[last] = shortenInScreen(coords[last], coords[fromIdx], pullPx);
       }
       return { ...feat, geometry: { ...feat.geometry, coordinates: coords } };
     });
@@ -1246,13 +1264,72 @@
     });
   }
 
-  // Attach zoom/move listener exactly ONCE at startup
+  // Attach zoom/move listener exactly ONCE at startup.
+  // On zoom, both the line shortening AND arrow rotation need to refresh,
+  // since screen-space bearings change with zoom on long/curved/geodesic lines.
   let arrowListenerAttached = false;
+  function refreshArrowedAll() {
+    refreshArrowedLines();
+    // Re-render the entire line set to refresh arrow markers (rotation may have changed)
+    if (linesVisible && lineData.length && lineData.some(d => d.arrow !== 0)) {
+      // Re-place arrow markers without rebuilding the whole layer
+      replaceArrowMarkers();
+    }
+  }
   function ensureArrowListener() {
     if (arrowListenerAttached) return;
-    map.on('zoomend', refreshArrowedLines);
-    map.on('moveend', refreshArrowedLines);
+    map.on('zoomend', refreshArrowedAll);
+    map.on('moveend', refreshArrowedAll);
     arrowListenerAttached = true;
+  }
+
+  // Re-create arrow markers based on current zoom — uses linesOriginalFeatures
+  function replaceArrowMarkers() {
+    clearLineArrows();
+
+    const arrowSizeFor = (d) => {
+      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
+        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
+      return Math.max(6, normW * 2);
+    };
+
+    lineData.forEach((d, i) => {
+      if (d.arrow === 0) return;
+      const origCoords = linesOriginalFeatures[i].geometry.coordinates;
+      const [fr,fg,fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
+      const lineOpacity = (d.opacity / 255) * linesMasterOpacity;
+      const arrowSize = arrowSizeFor(d);
+      const stableMinPx = arrowSize * 3;
+
+      const placeArrow = (tipCoord, fromCoord) => {
+        const tipPx  = map.project(tipCoord);
+        const fromPx = map.project(fromCoord);
+        const bearing = Math.atan2(tipPx.y - fromPx.y, tipPx.x - fromPx.x);
+        const canvas = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
+        const offX = -Math.cos(bearing) * arrowSize;
+        const offY = -Math.sin(bearing) * arrowSize;
+        const marker = new mapboxgl.Marker({
+          element:           canvas,
+          anchor:            'center',
+          offset:            [offX, offY],
+          pitchAlignment:    'map',
+          rotationAlignment: 'map'
+        })
+          .setLngLat(tipCoord)
+          .addTo(map);
+        lineArrowMarkers.push(marker);
+      };
+
+      if (d.arrow === 1 || d.arrow === 3) {
+        const fromIdx = findStableFromIndex(origCoords, 0, +1, stableMinPx);
+        placeArrow(origCoords[0], origCoords[fromIdx]);
+      }
+      if (d.arrow === 2 || d.arrow === 3) {
+        const last = origCoords.length - 1;
+        const fromIdx = findStableFromIndex(origCoords, last, -1, stableMinPx);
+        placeArrow(origCoords[last], origCoords[fromIdx]);
+      }
+    });
   }
 
   function clearLineArrows() {
@@ -1344,11 +1421,15 @@
       const arrowSize   = arrowSizeFor(d);
 
       const placeArrow = (tipCoord, fromCoord) => {
-        const bearing = geoBearing(fromCoord[0], fromCoord[1], tipCoord[0], tipCoord[1]);
-        const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
+        // Use SCREEN-space direction (not great-circle bearing) so arrow aligns with
+        // how the line is actually rendered in Mercator at the current zoom.
+        const tipPx  = map.project(tipCoord);
+        const fromPx = map.project(fromCoord);
+        // Canvas y axis: +y = down in screen but +y = south in pitchAlignment 'map'.
+        // For the rotation we use atan2(dy, dx) in screen-space pixels.
+        const bearing = Math.atan2(tipPx.y - fromPx.y, tipPx.x - fromPx.x);
 
-        // bearing 0 = east; tip sits at +arrowSize east of canvas centre.
-        // Offset pushes the canvas centre back from the tip so the tip lands on tipCoord.
+        const canvas  = drawArrowCanvas(fr, fg, fb, arrowSize, bearing, lineOpacity);
         const offX = -Math.cos(bearing) * arrowSize;
         const offY = -Math.sin(bearing) * arrowSize;
 
@@ -1364,12 +1445,15 @@
         lineArrowMarkers.push(marker);
       };
 
+      const stableMinPx = arrowSize * 3;
       if (d.arrow === 1 || d.arrow === 3) {
-        placeArrow(origCoords[0], origCoords[1]);
+        const fromIdx = findStableFromIndex(origCoords, 0, +1, stableMinPx);
+        placeArrow(origCoords[0], origCoords[fromIdx]);
       }
       if (d.arrow === 2 || d.arrow === 3) {
         const last = origCoords.length - 1;
-        placeArrow(origCoords[last], origCoords[last - 1]);
+        const fromIdx = findStableFromIndex(origCoords, last, -1, stableMinPx);
+        placeArrow(origCoords[last], origCoords[fromIdx]);
       }
     });
 
