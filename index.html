@@ -1163,9 +1163,9 @@
     ctx.translate(size * 1.5, size * 1.5);
     ctx.rotate(direction);
     ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.6, -size * 0.7);
-    ctx.lineTo(-size * 0.6,  size * 0.7);
+    ctx.moveTo(size, 0);                  // tip
+    ctx.lineTo(-size * 0.7, -size * 1.0); // back-left  (wider than line)
+    ctx.lineTo(-size * 0.7,  size * 1.0); // back-right
     ctx.closePath();
     ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
     ctx.fill();
@@ -1286,7 +1286,7 @@
         if (d.arrow === 0) return feat;
 
         const arrowSize = arrowSizeFor(d);
-        const pullPx    = arrowSize * 1.15;   // pull line back slightly past arrow base to avoid opacity overlap
+        const pullPx    = arrowSize * 1.55;   // line tucks just inside the arrow's back edge — wide arrow base hides the butt cut
 
         const original = feat.properties.__origCoords;
         let coords = original.map(c => [...c]);
