@@ -271,13 +271,13 @@
     </div>
     <div class="sl-row no-indent">
       <span class="sl-label">Min size</span>
-      <input type="range" class="purple" id="sl-circ-min" min="3" max="300" value="7" oninput="onCirclesMin(this.value)" />
-      <span class="sl-val purple" id="val-circ-min">7px</span>
+      <input type="range" class="purple" id="sl-circ-min" min="0" max="100" value="51" oninput="onCirclesMin(this.value)" />
+      <span class="sl-val purple" id="val-circ-min">30 km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Max size</span>
-      <input type="range" class="purple" id="sl-circ-max" min="3" max="300" value="50" oninput="onCirclesMax(this.value)" />
-      <span class="sl-val purple" id="val-circ-max">50px</span>
+      <input type="range" class="purple" id="sl-circ-max" min="0" max="100" value="66" oninput="onCirclesMax(this.value)" />
+      <span class="sl-val purple" id="val-circ-max">150 km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -303,18 +303,18 @@
     </div>
     <div class="sl-row no-indent">
       <span class="sl-label">Diameter</span>
-      <input type="range" class="purple" id="sl-bars-dia" min="5" max="200" value="50" oninput="onBarsDiameter(this.value)" />
-      <span class="sl-val purple" id="val-bars-dia">50km</span>
+      <input type="range" class="purple" id="sl-bars-dia" min="0" max="100" value="66" oninput="onBarsDiameter(this.value)" />
+      <span class="sl-val purple" id="val-bars-dia">50 km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Min height</span>
-      <input type="range" class="purple" id="sl-bars-hmin" min="1" max="900" value="1" step="1" oninput="onBarsHMin(this.value)" />
-      <span class="sl-val purple" id="val-bars-hmin">1km</span>
+      <input type="range" class="purple" id="sl-bars-hmin" min="0" max="100" value="33" oninput="onBarsHMin(this.value)" />
+      <span class="sl-val purple" id="val-bars-hmin">1 km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Max height</span>
-      <input type="range" class="purple" id="sl-bars-hmax" min="1" max="900" value="500" step="1" oninput="onBarsHMax(this.value)" />
-      <span class="sl-val purple" id="val-bars-hmax">500km</span>
+      <input type="range" class="purple" id="sl-bars-hmax" min="0" max="100" value="84" oninput="onBarsHMax(this.value)" />
+      <span class="sl-val purple" id="val-bars-hmax">500 km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -407,8 +407,8 @@
   let circlesVisible = true;
   let circlesMasterOpacity = 1.0;
   let circlesMasterSat     = 1.0;
-  let circlesMinPx      = 7;     // pixel diameter for smallest circle
-  let circlesMaxPx      = 50;    // pixel diameter for largest circle
+  let circlesMinKm      = 30;    // geographic diameter for smallest circle (km)
+  let circlesMaxKm      = 150;   // geographic diameter for largest circle (km)
   let circlesMinRaw     = 1;     // smallest relSize value in loaded data
   let circlesMaxRaw     = 1;     // largest relSize value in loaded data
   let circlesAllSame    = false; // true if all relSize values are identical
@@ -420,8 +420,8 @@
   let barsVisible      = true;
   let barsMasterOpacity = 1.0;
   let barsMasterSat     = 1.0;
-  let barsMinHeight  = 1000;     // metres for the shortest bar (relHeight = min)
-  let barsMaxHeight  = 500000;   // metres for the tallest bar  (relHeight = max)
+  let barsMinHeight  = 1;        // km for the shortest bar (relHeight = min)
+  let barsMaxHeight  = 500;      // km for the tallest bar  (relHeight = max)
   let barsDiameter   = 50;       // km — bar diameter
   let barsMinRaw     = 0;        // smallest relHeight in loaded data
   let barsMaxRaw     = 100;      // largest  relHeight in loaded data
@@ -568,19 +568,20 @@
           circlesMaxRaw  = Math.max(...circleData.map(d => d.relSize));
           circlesAllSame = circlesMinRaw === circlesMaxRaw;
           if (circlesAllSame) {
-            // Sync both sliders to midpoint default
-            const mid = Math.round((7 + 50) / 2);
-            circlesMinPx = mid; circlesMaxPx = mid;
-            document.getElementById('sl-circ-min').value = mid;
-            document.getElementById('sl-circ-max').value = mid;
-            document.getElementById('val-circ-min').textContent = mid + 'px';
-            document.getElementById('val-circ-max').textContent = mid + 'px';
+            // Sync both sliders to geometric midpoint of 30km and 150km on log scale
+            const midKm  = Math.sqrt(30 * 150);   // geometric mean ≈ 67 km
+            const midPos = kmToLogSlider(midKm);
+            circlesMinKm = midKm; circlesMaxKm = midKm;
+            document.getElementById('sl-circ-min').value = midPos;
+            document.getElementById('sl-circ-max').value = midPos;
+            document.getElementById('val-circ-min').textContent = formatKm(midKm);
+            document.getElementById('val-circ-max').textContent = formatKm(midKm);
           } else {
-            circlesMinPx = 7; circlesMaxPx = 50;
-            document.getElementById('sl-circ-min').value = 7;
-            document.getElementById('sl-circ-max').value = 50;
-            document.getElementById('val-circ-min').textContent = '7px';
-            document.getElementById('val-circ-max').textContent = '50px';
+            circlesMinKm = 30; circlesMaxKm = 150;
+            document.getElementById('sl-circ-min').value = kmToLogSlider(30);
+            document.getElementById('sl-circ-max').value = kmToLogSlider(150);
+            document.getElementById('val-circ-min').textContent = '30 km';
+            document.getElementById('val-circ-max').textContent = '150 km';
           }
         }
 
@@ -615,18 +616,19 @@
           barsMaxRaw  = Math.max(...barData.map(d => d.relHeight));
           barsAllSame = barsMinRaw === barsMaxRaw;
           if (barsAllSame) {
-            const mid = Math.round((1 + 500) / 2);
-            barsMinHeight = mid * 1000; barsMaxHeight = mid * 1000;
-            document.getElementById('sl-bars-hmin').value = mid;
-            document.getElementById('sl-bars-hmax').value = mid;
-            document.getElementById('val-bars-hmin').textContent = mid + 'km';
-            document.getElementById('val-bars-hmax').textContent = mid + 'km';
+            const midKm  = Math.sqrt(1 * 500);   // geometric mean ≈ 22 km
+            const midPos = kmToLogSlider(midKm);
+            barsMinHeight = midKm; barsMaxHeight = midKm;
+            document.getElementById('sl-bars-hmin').value = midPos;
+            document.getElementById('sl-bars-hmax').value = midPos;
+            document.getElementById('val-bars-hmin').textContent = formatKm(midKm);
+            document.getElementById('val-bars-hmax').textContent = formatKm(midKm);
           } else {
-            barsMinHeight = 1000; barsMaxHeight = 500000;
-            document.getElementById('sl-bars-hmin').value = 1;
-            document.getElementById('sl-bars-hmax').value = 500;
-            document.getElementById('val-bars-hmin').textContent = '1km';
-            document.getElementById('val-bars-hmax').textContent = '500km';
+            barsMinHeight = 1; barsMaxHeight = 500;
+            document.getElementById('sl-bars-hmin').value = kmToLogSlider(1);
+            document.getElementById('sl-bars-hmax').value = kmToLogSlider(500);
+            document.getElementById('val-bars-hmin').textContent = '1 km';
+            document.getElementById('val-bars-hmax').textContent = '500 km';
           }
         }
         document.getElementById('bars-count').textContent = barData.length + ' items';
@@ -712,24 +714,48 @@
     ];
   }
 
+  // ── Log-scale slider helpers ──
+  // Sliders use position 0-100; these convert to/from a log-scale value in km.
+  const LOG_MIN_KM = 0.1;    // 100 m
+  const LOG_MAX_KM = 2000;   // 2000 km
+
+  function logSliderToKm(position) {
+    const minLog = Math.log10(LOG_MIN_KM);
+    const maxLog = Math.log10(LOG_MAX_KM);
+    return Math.pow(10, minLog + (position / 100) * (maxLog - minLog));
+  }
+
+  function kmToLogSlider(km) {
+    const minLog = Math.log10(LOG_MIN_KM);
+    const maxLog = Math.log10(LOG_MAX_KM);
+    return Math.round(((Math.log10(km) - minLog) / (maxLog - minLog)) * 100);
+  }
+
+  function formatKm(km) {
+    if (km < 1) return Math.round(km * 1000) + ' m';
+    if (km < 10) return km.toFixed(1) + ' km';
+    return Math.round(km) + ' km';
+  }
+
+  // Convert km radius to approximate degrees at a given latitude.
+  // Uses 111.32 km/degree for latitude, adjusts longitude for latitude.
+  // We use the average latitude of the data, defaulting to 45° (mid-Europe).
+  function kmToDeg(km, lat) {
+    const latDeg = lat || 45;
+    return km / (111.32 * Math.cos(latDeg * Math.PI / 180));
+  }
+
   function drawCircleCanvas(d, masterOpacity, masterSat) {
     const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, masterSat);
     const fillOpacity   = (d.opacity / 255) * masterOpacity;
     const borderOpacity = masterOpacity;
-    // Relative size: scale so that the largest item = master size,
-    // minimum size = 3px regardless of scaling
-    // Area-based scaling: diameter ∝ sqrt(relSize), so equal area steps feel equal
-    let diameter;
-    if (circlesAllSame || circlesMaxRaw === circlesMinRaw) {
-      diameter = circlesMinPx;
-    } else {
-      const sqrtMin = Math.sqrt(circlesMinRaw);
-      const sqrtMax = Math.sqrt(circlesMaxRaw);
-      const sqrtVal = Math.sqrt(d.relSize);
-      const t = (sqrtVal - sqrtMin) / (sqrtMax - sqrtMin);
-      diameter = circlesMinPx + t * (circlesMaxPx - circlesMinPx);
-    }
-    const radius = Math.max(1.5, diameter / 2);
+    // For orbs (HTML canvas markers), convert km size to approximate screen pixels
+    // at a reference zoom of 5 — so orbs look similar in scale to flat circles.
+    const REF_ZOOM     = 5;
+    const DEG_PER_PX   = 360 / (256 * Math.pow(2, REF_ZOOM));  // degrees per pixel at ref zoom
+    const radiusDegOrb = circleRadiusDeg(d);
+    const radiusPxRef  = radiusDegOrb / DEG_PER_PX;
+    const radius       = Math.max(4, radiusPxRef);
     const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1
                  : d.border === 2 ? Math.ceil(radius * 0.35) + 4
                  : 2;
@@ -827,14 +853,20 @@
     circleMarkers = [];
   }
 
-  // Compute the diameter (px) for a single circle entry, applying the area-based scaling
-  function circleDiameterPx(d) {
-    if (circlesAllSame || circlesMaxRaw === circlesMinRaw) return circlesMinPx;
-    const sqrtMin = Math.sqrt(circlesMinRaw);
-    const sqrtMax = Math.sqrt(circlesMaxRaw);
-    const sqrtVal = Math.sqrt(d.relSize);
-    const t = (sqrtVal - sqrtMin) / (sqrtMax - sqrtMin);
-    return circlesMinPx + t * (circlesMaxPx - circlesMinPx);
+  // Compute the radius in degrees for a circle, using area-based (sqrt) scaling
+  // between circlesMinKm and circlesMaxKm, then converting to degrees at d's latitude.
+  function circleRadiusDeg(d) {
+    let diamKm;
+    if (circlesAllSame || circlesMaxRaw === circlesMinRaw) {
+      diamKm = circlesMinKm;
+    } else {
+      const sqrtMin = Math.sqrt(circlesMinRaw);
+      const sqrtMax = Math.sqrt(circlesMaxRaw);
+      const sqrtVal = Math.sqrt(d.relSize);
+      const t       = (sqrtVal - sqrtMin) / (sqrtMax - sqrtMin);
+      diamKm        = circlesMinKm + t * (circlesMaxKm - circlesMinKm);
+    }
+    return kmToDeg(diamKm / 2, d.lat);   // radius in degrees
   }
 
   function renderCircles() {
@@ -848,23 +880,23 @@
     const flatCircles = circleData.filter(d => d.border !== 2);
     const orbCircles  = circleData.filter(d => d.border === 2);
 
-    // ── Flat circles as a Mapbox circle layer ──
+    // ── Flat circles as fill-extrusion polygons (height=0, tilts with map pitch) ──
     if (flatCircles.length > 0) {
       const features = flatCircles.map(d => {
         const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
-        const diameter = circleDiameterPx(d);
-        const radius   = Math.max(1.5, diameter / 2);
-        const fillOpacity = (d.opacity / 255) * circlesMasterOpacity;
+        const radiusDeg    = circleRadiusDeg(d);
+        const fillOpacity  = (d.opacity / 255) * circlesMasterOpacity;
+        // Build polygon: 18-sided approximation for round, 4-sided for border=1 square option
+        const coords = circlePolygon(d.lng, d.lat, radiusDeg, 18);
         return {
           type: 'Feature',
-          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+          geometry: { type: 'Polygon', coordinates: [coords] },
           properties: {
-            name:        d.name,
-            radius:      radius,
-            color:       `rgb(${fr},${fg},${fb})`,
-            opacity:     fillOpacity,
-            border:      d.border,
-            borderSize:  d.borderSize
+            name:       d.name,
+            color:      `rgb(${fr},${fg},${fb})`,
+            opacity:    fillOpacity,
+            border:     d.border,
+            borderSize: d.borderSize
           }
         };
       });
@@ -874,20 +906,31 @@
         data: { type: 'FeatureCollection', features }
       });
 
-      // Insert BEFORE bars-layer if it exists, so bars render on top of circles.
-      // If bars don't exist yet, append; later renderBars will sit on top naturally.
+      // Insert BEFORE bars-layer so bars render on top
       const beforeId = map.getLayer('bars-layer') ? 'bars-layer' : undefined;
+
+      // Fill
       map.addLayer({
         id: 'circles-layer',
-        type: 'circle',
+        type: 'fill-extrusion',
         source: 'circles-src',
         paint: {
-          'circle-radius':         ['get', 'radius'],
-          'circle-color':          ['get', 'color'],
-          'circle-opacity':        ['get', 'opacity'],
-          'circle-stroke-width':   ['case', ['==', ['get', 'border'], 1], ['get', 'borderSize'], 0],
-          'circle-stroke-color':   '#000000',
-          'circle-stroke-opacity': ['case', ['==', ['get', 'border'], 1], 1.0, 0]
+          'fill-extrusion-color':   ['get', 'color'],
+          'fill-extrusion-opacity': circlesMasterOpacity,
+          'fill-extrusion-height':  0,
+          'fill-extrusion-base':    0
+        }
+      }, beforeId);
+
+      // Border outline (separate line layer, only visible when border=1)
+      map.addLayer({
+        id: 'circles-border-layer',
+        type: 'line',
+        source: 'circles-src',
+        paint: {
+          'line-color':   '#000000',
+          'line-width':   ['case', ['==', ['get', 'border'], 1], ['get', 'borderSize'], 0],
+          'line-opacity': ['case', ['==', ['get', 'border'], 1], circlesMasterOpacity, 0]
         }
       }, beforeId);
 
@@ -940,31 +983,35 @@
 
   // Update flat-circle appearance via setData (cheap), and redraw orbs on canvas
   function updateCircleAppearance() {
-    // Flat circles — rebuild GeoJSON and update the source
+    // Flat circles — rebuild polygon GeoJSON and update source + layer opacities
     if (map.getSource('circles-src')) {
       const flatCircles = circleData.filter(d => d.border !== 2);
       const features = flatCircles.map(d => {
         const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, circlesMasterSat);
-        const diameter = circleDiameterPx(d);
-        const radius   = Math.max(1.5, diameter / 2);
-        const fillOpacity = (d.opacity / 255) * circlesMasterOpacity;
+        const radiusDeg    = circleRadiusDeg(d);
+        const fillOpacity  = (d.opacity / 255) * circlesMasterOpacity;
+        const coords       = circlePolygon(d.lng, d.lat, radiusDeg, 18);
         return {
           type: 'Feature',
-          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+          geometry: { type: 'Polygon', coordinates: [coords] },
           properties: {
-            name: d.name, radius, color: `rgb(${fr},${fg},${fb})`,
+            name: d.name, color: `rgb(${fr},${fg},${fb})`,
             opacity: fillOpacity, border: d.border, borderSize: d.borderSize
           }
         };
       });
-      map.getSource('circles-src').setData({
-        type: 'FeatureCollection', features
-      });
+      map.getSource('circles-src').setData({ type: 'FeatureCollection', features });
+      // Update layer-level opacity (fill-extrusion-opacity is not data-driven)
+      try {
+        map.setPaintProperty('circles-layer', 'fill-extrusion-opacity', circlesMasterOpacity);
+        map.setPaintProperty('circles-border-layer', 'line-opacity',
+          ['case', ['==', ['get', 'border'], 1], circlesMasterOpacity, 0]);
+      } catch(e) {}
     }
 
     // Orbs — redraw each canvas in place
     circleMarkers.forEach((marker, i) => {
-      const d      = orbDataForMarker(i);
+      const d = orbDataForMarker(i);
       if (!d) return;
       const canvas = marker.getElement();
       const ctx    = canvas.getContext('2d');
@@ -985,24 +1032,24 @@
     renderCircles();
   }
   function onCirclesMin(v) {
-    circlesMinPx = parseInt(v);
-    document.getElementById('val-circ-min').textContent = v + 'px';
+    circlesMinKm = logSliderToKm(parseInt(v));
+    document.getElementById('val-circ-min').textContent = formatKm(circlesMinKm);
     // Clamp max so it's never less than min
-    if (circlesMaxPx < circlesMinPx) {
-      circlesMaxPx = circlesMinPx;
-      document.getElementById('sl-circ-max').value = circlesMinPx;
-      document.getElementById('val-circ-max').textContent = circlesMinPx + 'px';
+    if (circlesMaxKm < circlesMinKm) {
+      circlesMaxKm = circlesMinKm;
+      document.getElementById('sl-circ-max').value = v;
+      document.getElementById('val-circ-max').textContent = formatKm(circlesMaxKm);
     }
     renderCircles();
   }
   function onCirclesMax(v) {
-    circlesMaxPx = parseInt(v);
-    document.getElementById('val-circ-max').textContent = v + 'px';
+    circlesMaxKm = logSliderToKm(parseInt(v));
+    document.getElementById('val-circ-max').textContent = formatKm(circlesMaxKm);
     // Clamp min so it's never more than max
-    if (circlesMinPx > circlesMaxPx) {
-      circlesMinPx = circlesMaxPx;
-      document.getElementById('sl-circ-min').value = circlesMaxPx;
-      document.getElementById('val-circ-min').textContent = circlesMaxPx + 'px';
+    if (circlesMinKm > circlesMaxKm) {
+      circlesMinKm = circlesMaxKm;
+      document.getElementById('sl-circ-min').value = v;
+      document.getElementById('val-circ-min').textContent = formatKm(circlesMinKm);
     }
     renderCircles();
   }
@@ -1058,18 +1105,19 @@
 
     if (!barsVisible || barData.length === 0) return;
 
-    // Bar diameter: user-controlled in km. Convert km to degrees (approx 111km per degree)
+    // Bar diameter in km, convert to degrees (approx 111km per degree at equator)
     const baseRadiusDeg = (barsDiameter / 2) / 111;
 
     const features = barData.map(d => {
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, barsMasterSat);
       // Linear interpolation between min and max height based on relHeight value
+      // State variables are now in km; convert to metres for Mapbox fill-extrusion
       let heightM;
       if (barsAllSame || barsMaxRaw === barsMinRaw) {
-        heightM = barsMinHeight;
+        heightM = barsMinHeight * 1000;
       } else {
         const t = (d.relHeight - barsMinRaw) / (barsMaxRaw - barsMinRaw);
-        heightM = barsMinHeight + t * (barsMaxHeight - barsMinHeight);
+        heightM = (barsMinHeight + t * (barsMaxHeight - barsMinHeight)) * 1000;
       }
 
       const coords = d.type === 1
@@ -1139,28 +1187,28 @@
     renderBars();
   }
   function onBarsHMin(v) {
-    barsMinHeight = parseInt(v) * 1000;
-    document.getElementById('val-bars-hmin').textContent = v + 'km';
+    barsMinHeight = logSliderToKm(parseInt(v));
+    document.getElementById('val-bars-hmin').textContent = formatKm(barsMinHeight);
     if (barsMaxHeight < barsMinHeight) {
       barsMaxHeight = barsMinHeight;
       document.getElementById('sl-bars-hmax').value = v;
-      document.getElementById('val-bars-hmax').textContent = v + 'km';
+      document.getElementById('val-bars-hmax').textContent = formatKm(barsMaxHeight);
     }
     updateBarsAppearance();
   }
   function onBarsHMax(v) {
-    barsMaxHeight = parseInt(v) * 1000;
-    document.getElementById('val-bars-hmax').textContent = v + 'km';
+    barsMaxHeight = logSliderToKm(parseInt(v));
+    document.getElementById('val-bars-hmax').textContent = formatKm(barsMaxHeight);
     if (barsMinHeight > barsMaxHeight) {
       barsMinHeight = barsMaxHeight;
       document.getElementById('sl-bars-hmin').value = v;
-      document.getElementById('val-bars-hmin').textContent = v + 'km';
+      document.getElementById('val-bars-hmin').textContent = formatKm(barsMinHeight);
     }
     updateBarsAppearance();
   }
   function onBarsDiameter(v) {
-    barsDiameter = parseInt(v);
-    document.getElementById('val-bars-dia').textContent = v + 'km';
+    barsDiameter = logSliderToKm(parseInt(v));
+    document.getElementById('val-bars-dia').textContent = formatKm(barsDiameter);
     updateBarsAppearance();
   }
   function onBarsOpacity(v) {
