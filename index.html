@@ -270,9 +270,14 @@
       <span class="count-badge" id="circles-count">0 items</span>
     </div>
     <div class="sl-row no-indent">
-      <span class="sl-label">Size</span>
-      <input type="range" class="purple" id="sl-circ-size" min="3" max="300" value="50" oninput="onCirclesSize(this.value)" />
-      <span class="sl-val purple" id="val-circ-size">50px</span>
+      <span class="sl-label">Min size</span>
+      <input type="range" class="purple" id="sl-circ-min" min="3" max="300" value="7" oninput="onCirclesMin(this.value)" />
+      <span class="sl-val purple" id="val-circ-min">7px</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Max size</span>
+      <input type="range" class="purple" id="sl-circ-max" min="3" max="300" value="50" oninput="onCirclesMax(this.value)" />
+      <span class="sl-val purple" id="val-circ-max">50px</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -302,9 +307,14 @@
       <span class="sl-val purple" id="val-bars-dia">50km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
-      <span class="sl-label">Max Height</span>
-      <input type="range" class="purple" id="sl-bars-height" min="1000" max="500000" value="200000" step="1000" oninput="onBarsHeight(this.value)" />
-      <span class="sl-val purple" id="val-bars-height">200km</span>
+      <span class="sl-label">Min height</span>
+      <input type="range" class="purple" id="sl-bars-hmin" min="1" max="900" value="1" step="1" oninput="onBarsHMin(this.value)" />
+      <span class="sl-val purple" id="val-bars-hmin">1km</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Max height</span>
+      <input type="range" class="purple" id="sl-bars-hmax" min="1" max="900" value="500" step="1" oninput="onBarsHMax(this.value)" />
+      <span class="sl-val purple" id="val-bars-hmax">500km</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -329,9 +339,14 @@
       <span class="count-badge" id="lines-count">0 items</span>
     </div>
     <div class="sl-row no-indent">
-      <span class="sl-label">Width</span>
-      <input type="range" class="purple" id="sl-lines-w" min="10" max="300" value="100" oninput="onLinesWidth(this.value)" />
-      <span class="sl-val purple" id="val-lines-w">100%</span>
+      <span class="sl-label">Min width</span>
+      <input type="range" class="purple" id="sl-lines-wmin" min="1" max="300" value="1" oninput="onLinesWMin(this.value)" />
+      <span class="sl-val purple" id="val-lines-wmin">1px</span>
+    </div>
+    <div class="sl-row no-indent" style="margin-top:7px;">
+      <span class="sl-label">Max width</span>
+      <input type="range" class="purple" id="sl-lines-wmax" min="1" max="300" value="50" oninput="onLinesWMax(this.value)" />
+      <span class="sl-val purple" id="val-lines-wmax">50px</span>
     </div>
     <div class="sl-row no-indent" style="margin-top:7px;">
       <span class="sl-label">Opacity</span>
@@ -392,8 +407,11 @@
   let circlesVisible = true;
   let circlesMasterOpacity = 1.0;
   let circlesMasterSat     = 1.0;
-  let circlesMasterSize    = 50;   // target pixel size for the largest circle
-  let circlesMaxRawSize    = 1;    // largest raw (h+w)/2 value in the loaded data — computed on load
+  let circlesMinPx      = 7;     // pixel diameter for smallest circle
+  let circlesMaxPx      = 50;    // pixel diameter for largest circle
+  let circlesMinRaw     = 1;     // smallest relSize value in loaded data
+  let circlesMaxRaw     = 1;     // largest relSize value in loaded data
+  let circlesAllSame    = false; // true if all relSize values are identical
 
   // Raw circle data from Excel
   let circleData = [];
@@ -402,8 +420,12 @@
   let barsVisible      = true;
   let barsMasterOpacity = 1.0;
   let barsMasterSat     = 1.0;
-  let barsMaxHeight     = 200000;   // metres — what Relative Height 100 maps to
-  let barsDiameter      = 50;       // km — bar diameter
+  let barsMinHeight  = 1000;     // metres for the shortest bar (relHeight = min)
+  let barsMaxHeight  = 500000;   // metres for the tallest bar  (relHeight = max)
+  let barsDiameter   = 50;       // km — bar diameter
+  let barsMinRaw     = 0;        // smallest relHeight in loaded data
+  let barsMaxRaw     = 100;      // largest  relHeight in loaded data
+  let barsAllSame    = false;
 
   // Raw bar data from Excel
   let barData = [];
@@ -412,7 +434,11 @@
   let linesVisible      = true;
   let linesMasterOpacity = 1.0;
   let linesMasterSat     = 1.0;
-  let linesWidthScale    = 1.0;   // multiplier on Excel width values
+  let linesMinPx     = 1;    // pixel width for thinnest line
+  let linesMaxPx     = 50;   // pixel width for thickest line
+  let linesMinRaw    = 1;    // smallest width value in loaded data
+  let linesMaxRaw    = 1;    // largest  width value in loaded data
+  let linesAllSame   = false;
 
   // Raw line data from Excel
   let lineData = [];
@@ -536,10 +562,27 @@
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
 
-        // Compute the largest raw size across all circles — used as the 100% reference
-        circlesMaxRawSize = circleData.length
-          ? Math.max(...circleData.map(d => d.relSize), 1)
-          : 1;
+        // Compute min/max relSize for normalisation
+        if (circleData.length) {
+          circlesMinRaw  = Math.min(...circleData.map(d => d.relSize));
+          circlesMaxRaw  = Math.max(...circleData.map(d => d.relSize));
+          circlesAllSame = circlesMinRaw === circlesMaxRaw;
+          if (circlesAllSame) {
+            // Sync both sliders to midpoint default
+            const mid = Math.round((7 + 50) / 2);
+            circlesMinPx = mid; circlesMaxPx = mid;
+            document.getElementById('sl-circ-min').value = mid;
+            document.getElementById('sl-circ-max').value = mid;
+            document.getElementById('val-circ-min').textContent = mid + 'px';
+            document.getElementById('val-circ-max').textContent = mid + 'px';
+          } else {
+            circlesMinPx = 7; circlesMaxPx = 50;
+            document.getElementById('sl-circ-min').value = 7;
+            document.getElementById('sl-circ-max').value = 50;
+            document.getElementById('val-circ-min').textContent = '7px';
+            document.getElementById('val-circ-max').textContent = '50px';
+          }
+        }
 
         // Update UI
         document.getElementById('file-name-label').textContent = file.name;
@@ -567,6 +610,25 @@
           })).filter(d => !isNaN(d.lng) && !isNaN(d.lat));
         }
 
+        if (barData.length) {
+          barsMinRaw  = Math.min(...barData.map(d => d.relHeight));
+          barsMaxRaw  = Math.max(...barData.map(d => d.relHeight));
+          barsAllSame = barsMinRaw === barsMaxRaw;
+          if (barsAllSame) {
+            const mid = Math.round((1 + 500) / 2);
+            barsMinHeight = mid * 1000; barsMaxHeight = mid * 1000;
+            document.getElementById('sl-bars-hmin').value = mid;
+            document.getElementById('sl-bars-hmax').value = mid;
+            document.getElementById('val-bars-hmin').textContent = mid + 'km';
+            document.getElementById('val-bars-hmax').textContent = mid + 'km';
+          } else {
+            barsMinHeight = 1000; barsMaxHeight = 500000;
+            document.getElementById('sl-bars-hmin').value = 1;
+            document.getElementById('sl-bars-hmax').value = 500;
+            document.getElementById('val-bars-hmin').textContent = '1km';
+            document.getElementById('val-bars-hmax').textContent = '500km';
+          }
+        }
         document.getElementById('bars-count').textContent = barData.length + ' items';
         renderBars();
 
@@ -592,6 +654,25 @@
           })).filter(d => !isNaN(d.fromLng) && !isNaN(d.fromLat) && !isNaN(d.toLng) && !isNaN(d.toLat));
         }
 
+        if (lineData.length) {
+          linesMinRaw  = Math.min(...lineData.map(d => d.width));
+          linesMaxRaw  = Math.max(...lineData.map(d => d.width));
+          linesAllSame = linesMinRaw === linesMaxRaw;
+          if (linesAllSame) {
+            const mid = Math.round((1 + 50) / 2);
+            linesMinPx = mid; linesMaxPx = mid;
+            document.getElementById('sl-lines-wmin').value = mid;
+            document.getElementById('sl-lines-wmax').value = mid;
+            document.getElementById('val-lines-wmin').textContent = mid + 'px';
+            document.getElementById('val-lines-wmax').textContent = mid + 'px';
+          } else {
+            linesMinPx = 1; linesMaxPx = 50;
+            document.getElementById('sl-lines-wmin').value = 1;
+            document.getElementById('sl-lines-wmax').value = 50;
+            document.getElementById('val-lines-wmin').textContent = '1px';
+            document.getElementById('val-lines-wmax').textContent = '50px';
+          }
+        }
         document.getElementById('lines-count').textContent = lineData.length + ' items';
         renderLines();
 
@@ -637,8 +718,18 @@
     const borderOpacity = masterOpacity;
     // Relative size: scale so that the largest item = master size,
     // minimum size = 3px regardless of scaling
-    const scaledDiam = (d.relSize / circlesMaxRawSize) * circlesMasterSize;
-    const radius     = Math.max(1.5, scaledDiam / 2);   // min 3px diameter → 1.5px radius
+    // Area-based scaling: diameter ∝ sqrt(relSize), so equal area steps feel equal
+    let diameter;
+    if (circlesAllSame || circlesMaxRaw === circlesMinRaw) {
+      diameter = circlesMinPx;
+    } else {
+      const sqrtMin = Math.sqrt(circlesMinRaw);
+      const sqrtMax = Math.sqrt(circlesMaxRaw);
+      const sqrtVal = Math.sqrt(d.relSize);
+      const t = (sqrtVal - sqrtMin) / (sqrtMax - sqrtMin);
+      diameter = circlesMinPx + t * (circlesMaxPx - circlesMinPx);
+    }
+    const radius = Math.max(1.5, diameter / 2);
     const pad    = d.border === 1 ? Math.max(d.borderSize, 2) + 1
                  : d.border === 2 ? Math.ceil(radius * 0.35) + 4
                  : 2;
@@ -784,10 +875,27 @@
     circlesVisible = document.getElementById('tog-circles').checked;
     renderCircles();
   }
-  function onCirclesSize(v) {
-    circlesMasterSize = parseInt(v);
-    document.getElementById('val-circ-size').textContent = v + 'px';
-    renderCircles();   // full re-render — canvas dimensions change
+  function onCirclesMin(v) {
+    circlesMinPx = parseInt(v);
+    document.getElementById('val-circ-min').textContent = v + 'px';
+    // Clamp max so it's never less than min
+    if (circlesMaxPx < circlesMinPx) {
+      circlesMaxPx = circlesMinPx;
+      document.getElementById('sl-circ-max').value = circlesMinPx;
+      document.getElementById('val-circ-max').textContent = circlesMinPx + 'px';
+    }
+    renderCircles();
+  }
+  function onCirclesMax(v) {
+    circlesMaxPx = parseInt(v);
+    document.getElementById('val-circ-max').textContent = v + 'px';
+    // Clamp min so it's never more than max
+    if (circlesMinPx > circlesMaxPx) {
+      circlesMinPx = circlesMaxPx;
+      document.getElementById('sl-circ-min').value = circlesMaxPx;
+      document.getElementById('val-circ-min').textContent = circlesMaxPx + 'px';
+    }
+    renderCircles();
   }
   function onCirclesOpacity(v) {
     circlesMasterOpacity = v / 100;
@@ -846,7 +954,14 @@
 
     const features = barData.map(d => {
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, barsMasterSat);
-      const heightM = (d.relHeight / 100) * barsMaxHeight;
+      // Linear interpolation between min and max height based on relHeight value
+      let heightM;
+      if (barsAllSame || barsMaxRaw === barsMinRaw) {
+        heightM = barsMinHeight;
+      } else {
+        const t = (d.relHeight - barsMinRaw) / (barsMaxRaw - barsMinRaw);
+        heightM = barsMinHeight + t * (barsMaxHeight - barsMinHeight);
+      }
 
       const coords = d.type === 1
         ? squarePolygon(d.lng, d.lat, baseRadiusDeg)
@@ -914,10 +1029,24 @@
     barsVisible = document.getElementById('tog-bars').checked;
     renderBars();
   }
-  function onBarsHeight(v) {
-    barsMaxHeight = parseInt(v);
-    const km = (barsMaxHeight / 1000).toFixed(0);
-    document.getElementById('val-bars-height').textContent = km + 'km';
+  function onBarsHMin(v) {
+    barsMinHeight = parseInt(v) * 1000;
+    document.getElementById('val-bars-hmin').textContent = v + 'km';
+    if (barsMaxHeight < barsMinHeight) {
+      barsMaxHeight = barsMinHeight;
+      document.getElementById('sl-bars-hmax').value = v;
+      document.getElementById('val-bars-hmax').textContent = v + 'km';
+    }
+    updateBarsAppearance();
+  }
+  function onBarsHMax(v) {
+    barsMaxHeight = parseInt(v) * 1000;
+    document.getElementById('val-bars-hmax').textContent = v + 'km';
+    if (barsMinHeight > barsMaxHeight) {
+      barsMinHeight = barsMaxHeight;
+      document.getElementById('sl-bars-hmin').value = v;
+      document.getElementById('val-bars-hmin').textContent = v + 'km';
+    }
     updateBarsAppearance();
   }
   function onBarsDiameter(v) {
@@ -1028,22 +1157,33 @@
   // Arrow head marker — small triangular canvas rotated toward direction
   function drawArrowCanvas(r, g, b, size, direction) {
     const canvas = document.createElement('canvas');
-    canvas.width  = size * 2;
-    canvas.height = size * 2;
+    canvas.width  = size * 3;
+    canvas.height = size * 3;
     const ctx = canvas.getContext('2d');
-    ctx.translate(size, size);
+    ctx.translate(size * 1.5, size * 1.5);
     ctx.rotate(direction);
     ctx.beginPath();
-    ctx.moveTo(size * 0.9, 0);
-    ctx.lineTo(-size * 0.5, -size * 0.6);
-    ctx.lineTo(-size * 0.5,  size * 0.6);
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.6, -size * 0.7);
+    ctx.lineTo(-size * 0.6,  size * 0.7);
     ctx.closePath();
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fill();
-    ctx.strokeStyle = '#000';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 1;
     ctx.stroke();
     return canvas;
+  }
+
+  // Compute true geographic bearing (in radians) from point A to point B
+  function geoBearing(lng1, lat1, lng2, lat2) {
+    const toRad = d => d * Math.PI / 180;
+    const φ1 = toRad(lat1), φ2 = toRad(lat2);
+    const Δλ = toRad(lng2 - lng1);
+    const x  = Math.sin(Δλ) * Math.cos(φ2);
+    const y  = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    // atan2 gives bearing from North, but canvas 0° is East — adjust by -90°
+    return Math.atan2(x, y) - Math.PI / 2;
   }
 
   let lineArrowMarkers = [];
@@ -1076,7 +1216,11 @@
           name:    `${d.fromName} → ${d.toName}`,
           color:   `rgb(${fr},${fg},${fb})`,
           opacity: (d.opacity / 255) * linesMasterOpacity,
-          width:   (d.width / 10) * linesWidthScale   // scale Excel widths to sensible px
+          width:   (() => {
+            if (linesAllSame || linesMaxRaw === linesMinRaw) return linesMinPx;
+            const t = (d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw);
+            return linesMinPx + t * (linesMaxPx - linesMinPx);
+          })()
         }
       };
     });
@@ -1109,12 +1253,13 @@
 
       const coords = features[i].geometry.coordinates;
       const [fr, fg, fb] = desaturateRGB(d.r, d.g, d.b, linesMasterSat);
-      const arrowSize = Math.max(6, (d.width / 10) * linesWidthScale * 2);
+      const normW = linesAllSame || linesMaxRaw === linesMinRaw ? linesMinPx
+        : linesMinPx + ((d.width - linesMinRaw) / (linesMaxRaw - linesMinRaw)) * (linesMaxPx - linesMinPx);
+      const arrowSize = Math.max(6, normW * 2);
 
       const placeArrow = (coord, prev) => {
-        const dx = coord[0] - prev[0];
-        const dy = coord[1] - prev[1];
-        const angle = Math.atan2(dy, dx);
+        // Use geographic bearing so the arrow aligns correctly regardless of latitude
+        const angle = geoBearing(prev[0], prev[1], coord[0], coord[1]);
         const canvas = drawArrowCanvas(fr, fg, fb, arrowSize, angle);
         const marker = new mapboxgl.Marker({
           element: canvas,
@@ -1158,9 +1303,24 @@
     linesVisible = document.getElementById('tog-lines').checked;
     renderLines();
   }
-  function onLinesWidth(v) {
-    linesWidthScale = v / 100;
-    document.getElementById('val-lines-w').textContent = v + '%';
+  function onLinesWMin(v) {
+    linesMinPx = parseInt(v);
+    document.getElementById('val-lines-wmin').textContent = v + 'px';
+    if (linesMaxPx < linesMinPx) {
+      linesMaxPx = linesMinPx;
+      document.getElementById('sl-lines-wmax').value = v;
+      document.getElementById('val-lines-wmax').textContent = v + 'px';
+    }
+    renderLines();
+  }
+  function onLinesWMax(v) {
+    linesMaxPx = parseInt(v);
+    document.getElementById('val-lines-wmax').textContent = v + 'px';
+    if (linesMinPx > linesMaxPx) {
+      linesMinPx = linesMaxPx;
+      document.getElementById('sl-lines-wmin').value = v;
+      document.getElementById('val-lines-wmin').textContent = v + 'px';
+    }
     renderLines();
   }
   function onLinesOpacity(v) {
